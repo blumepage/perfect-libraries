@@ -11,12 +11,21 @@ import {
   type TokenValue,
   type VariableBindingDefinition,
 } from "./manifest";
+import {
+  hasPendingRelease,
+  parseReleaseFeed,
+  validateReleaseManifest,
+  type ResolvedRelease,
+} from "./release-feed";
 
 declare const __html__: string;
 
 const PLUGIN_NAMESPACE = "perfectLibraries";
+const RELEASE_FEED_STORAGE_KEY = "releaseFeedUrl";
+const APPLIED_RELEASES_KEY = "appliedReleases";
 const UI_WIDTH = 420;
-const UI_HEIGHT = 680;
+const UI_HEIGHT = 760;
+const MAX_FEED_BYTES = 5_000_000;
 
 type ManagedSceneNode = SceneNode & PluginDataMixin;
 type ManagedVariable = Variable & PluginDataMixin;
@@ -43,6 +52,10 @@ interface Report {
   warnings: string[];
   details: string[];
   counters?: SyncCounters;
+  publishHandoff?: {
+    libraryName: string;
+    release: string;
+  };
 }
 
 interface SourceLookup {
@@ -58,10 +71,36 @@ interface ComponentRuntime {
 }
 
 type UiMessage =
+  | { type: "initialize" }
   | { type: "inspect"; manifest: unknown }
   | { type: "apply"; manifest: unknown }
+  | { type: "save-feed"; url: string }
+  | { type: "check-feed" }
+  | { type: "clear-feed" }
   | { type: "resize"; height: number }
   | { type: "close" };
+
+interface ReleaseState {
+  type: "release-state";
+  configuredUrl: string;
+  loading: boolean;
+  error?: string;
+  currentRelease?: string;
+  release?: {
+    libraryId: string;
+    libraryName: string;
+    release: string;
+    status?: "pending" | "published";
+    changelog: string;
+    publishedAt?: string;
+    sourceUrl?: string;
+    pending: boolean;
+    manifest: PerfectLibrariesManifest;
+  };
+}
+
+let configuredFeedUrl = "";
+let cachedRelease: ResolvedRelease | undefined;
 
 figma.showUI(__html__, {
   width: UI_WIDTH,
@@ -70,6 +109,11 @@ figma.showUI(__html__, {
 });
 
 figma.ui.onmessage = async (message: UiMessage) => {
+  if (message.type === "initialize") {
+    await initializeReleaseFeed();
+    return;
+  }
+
   if (message.type === "close") {
     figma.closePlugin();
     return;
@@ -77,6 +121,38 @@ figma.ui.onmessage = async (message: UiMessage) => {
 
   if (message.type === "resize") {
     figma.ui.resize(UI_WIDTH, Math.max(420, Math.min(820, message.height)));
+    return;
+  }
+
+  if (message.type === "save-feed") {
+    const normalized = normalizeFeedUrl(message.url);
+    if (!normalized) {
+      postReleaseState({
+        configuredUrl: message.url.trim(),
+        loading: false,
+        error: "Enter a valid HTTPS manifest or release-feed URL.",
+      });
+      return;
+    }
+    configuredFeedUrl = normalized;
+    await figma.clientStorage.setAsync(
+      RELEASE_FEED_STORAGE_KEY,
+      configuredFeedUrl,
+    );
+    await checkReleaseFeed();
+    return;
+  }
+
+  if (message.type === "check-feed") {
+    await checkReleaseFeed();
+    return;
+  }
+
+  if (message.type === "clear-feed") {
+    configuredFeedUrl = "";
+    cachedRelease = undefined;
+    await figma.clientStorage.deleteAsync(RELEASE_FEED_STORAGE_KEY);
+    postReleaseState({ configuredUrl: "", loading: false });
     return;
   }
 
@@ -89,9 +165,189 @@ figma.ui.onmessage = async (message: UiMessage) => {
     figma.ui.postMessage({ type: "busy", busy: true });
     const report = await apply(message.manifest);
     figma.ui.postMessage(report);
+    if (report.ok && cachedRelease) {
+      postResolvedRelease(cachedRelease);
+    }
     figma.ui.postMessage({ type: "busy", busy: false });
   }
 };
+
+async function initializeReleaseFeed(): Promise<void> {
+  const stored = await figma.clientStorage.getAsync(RELEASE_FEED_STORAGE_KEY);
+  configuredFeedUrl = typeof stored === "string" ? stored : "";
+  postReleaseState({ configuredUrl: configuredFeedUrl, loading: false });
+  if (configuredFeedUrl) await checkReleaseFeed();
+}
+
+function normalizeFeedUrl(value: string): string | undefined {
+  try {
+    const url = new URL(value.trim());
+    const localDevelopmentHost = ["localhost", "127.0.0.1"].includes(
+      url.hostname,
+    );
+    if (
+      url.protocol !== "https:" &&
+      !(url.protocol === "http:" && localDevelopmentHost)
+    ) {
+      return undefined;
+    }
+    return url.toString();
+  } catch {
+    return undefined;
+  }
+}
+
+function postReleaseState(
+  state: Omit<ReleaseState, "type">,
+): void {
+  figma.ui.postMessage({ type: "release-state", ...state } satisfies ReleaseState);
+}
+
+async function checkReleaseFeed(): Promise<void> {
+  if (!configuredFeedUrl) {
+    postReleaseState({ configuredUrl: "", loading: false });
+    return;
+  }
+
+  postReleaseState({ configuredUrl: configuredFeedUrl, loading: true });
+  try {
+    const feedPayload = await fetchJson(configuredFeedUrl);
+    const parsed = parseReleaseFeed(feedPayload, configuredFeedUrl);
+    if (!parsed.ok || !parsed.release) {
+      throw new Error(parsed.errors.join("\n"));
+    }
+
+    let release = parsed.release;
+    if (!release.manifest && release.manifestUrl) {
+      const manifestPayload = await fetchJson(release.manifestUrl);
+      const validated = validateReleaseManifest(release, manifestPayload);
+      if (!validated.ok || !validated.release) {
+        throw new Error(validated.errors.join("\n"));
+      }
+      release = validated.release;
+    }
+    if (!release.manifest) {
+      throw new Error("The release did not resolve to a library manifest.");
+    }
+
+    cachedRelease = release;
+    postResolvedRelease(release);
+  } catch (error) {
+    cachedRelease = undefined;
+    postReleaseState({
+      configuredUrl: configuredFeedUrl,
+      loading: false,
+      error:
+        error instanceof Error
+          ? error.message
+          : "The release feed could not be checked.",
+    });
+  }
+}
+
+function postResolvedRelease(release: ResolvedRelease): void {
+  if (!release.manifest) return;
+  const currentRelease = findAppliedRelease(release.libraryId);
+  postReleaseState({
+    configuredUrl: configuredFeedUrl,
+    loading: false,
+    currentRelease,
+    release: {
+      libraryId: release.libraryId,
+      libraryName: release.libraryName,
+      release: release.release,
+      ...(release.status ? { status: release.status } : {}),
+      changelog: release.changelog,
+      ...(release.publishedAt ? { publishedAt: release.publishedAt } : {}),
+      ...(release.sourceUrl ? { sourceUrl: release.sourceUrl } : {}),
+      pending: hasPendingRelease(currentRelease, release.release),
+      manifest: release.manifest,
+    },
+  });
+}
+
+function findAppliedRelease(libraryId: string): string | undefined {
+  const recorded = readAppliedReleases()[libraryId];
+  if (recorded) return recorded;
+  const releases = new Set(
+    findManagedSceneNodes(libraryId)
+      .map((node) => node.getSharedPluginData(PLUGIN_NAMESPACE, "release"))
+      .filter((release) => release.length > 0),
+  );
+  return releases.size === 1 ? [...releases][0] : undefined;
+}
+
+function readAppliedReleases(): Record<string, string> {
+  const stored = figma.root.getSharedPluginData(
+    PLUGIN_NAMESPACE,
+    APPLIED_RELEASES_KEY,
+  );
+  if (!stored) return {};
+  try {
+    const parsed = JSON.parse(stored);
+    if (typeof parsed !== "object" || parsed === null || Array.isArray(parsed)) {
+      return {};
+    }
+    return Object.fromEntries(
+      Object.entries(parsed).filter(
+        (entry): entry is [string, string] =>
+          typeof entry[1] === "string" && entry[1].length > 0,
+      ),
+    );
+  } catch {
+    return {};
+  }
+}
+
+function recordAppliedRelease(manifest: PerfectLibrariesManifest): void {
+  const releases = readAppliedReleases();
+  releases[manifest.library.id] = manifest.library.release;
+  figma.root.setSharedPluginData(
+    PLUGIN_NAMESPACE,
+    APPLIED_RELEASES_KEY,
+    JSON.stringify(releases),
+  );
+}
+
+async function fetchJson(url: string): Promise<unknown> {
+  const normalized = normalizeFeedUrl(url);
+  if (!normalized) {
+    throw new Error("Release sources must use HTTPS.");
+  }
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), 15_000);
+  let response: Response;
+  try {
+    response = await fetch(normalized, {
+      method: "GET",
+      headers: { Accept: "application/json" },
+      signal: controller.signal,
+    });
+  } catch (error) {
+    if (error instanceof Error && error.name === "AbortError") {
+      throw new Error("The release source did not respond within 15 seconds.");
+    }
+    throw error;
+  } finally {
+    clearTimeout(timeout);
+  }
+  if (!response.ok) {
+    throw new Error(`Request failed with ${response.status} ${response.statusText}.`);
+  }
+  const declaredLength = Number(response.headers.get("content-length") ?? "0");
+  if (declaredLength > MAX_FEED_BYTES) {
+    throw new Error("The response is larger than the 5 MB safety limit.");
+  }
+  const source = await response.text();
+  if (source.length > MAX_FEED_BYTES) {
+    throw new Error("The response is larger than the 5 MB safety limit.");
+  }
+  try {
+    return JSON.parse(source);
+  } catch {
+    throw new Error("The configured URL did not return valid JSON.");
+  }
+}
 
 async function inspect(input: unknown): Promise<Report & { type: "report" }> {
   const validation = validateManifest(input);
@@ -209,7 +465,10 @@ async function apply(input: unknown): Promise<Report & { type: "report" }> {
     figma.currentPage.selection = [...componentRuntime.values()].map(
       (runtime) => runtime.owner,
     );
-    figma.viewport.scrollAndZoomIntoView(figma.currentPage.selection);
+    if (figma.currentPage.selection.length > 0) {
+      figma.viewport.scrollAndZoomIntoView(figma.currentPage.selection);
+    }
+    recordAppliedRelease(manifest);
 
     return {
       type: "report",
@@ -222,9 +481,13 @@ async function apply(input: unknown): Promise<Report & { type: "report" }> {
         `${counters.componentsCreated} variants created, ${counters.componentsUpdated} updated`,
         `${counters.nestedInstancesCreated} nested instances linked`,
         `${counters.bindingsApplied} variable bindings applied`,
-        "Review the selected components, then publish the library manually.",
+        "Review the selected components, then use Figma’s native library publishing flow.",
       ],
       counters,
+      publishHandoff: {
+        libraryName: manifest.library.name,
+        release: manifest.library.release,
+      },
     };
   } catch (error) {
     return {

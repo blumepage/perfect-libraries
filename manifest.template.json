@@ -7,6 +7,16 @@
   "ui": "ui.html",
   "documentAccess": "dynamic-page",
   "networkAccess": {
-    "allowedDomains": ["none"]
+    "allowedDomains": [
+      "https://ui-libraries.blume-page.com",
+      "https://raw.githubusercontent.com"
+    ],
+    "devAllowedDomains": [
+      "http://localhost:3000",
+      "http://localhost:8787",
+      "http://127.0.0.1:3000",
+      "http://127.0.0.1:8787"
+    ],
+    "reasoning": "Users explicitly connect a library release feed. The Community build supports the open Perfect Libraries feed service and public GitHub-hosted feeds, performs GET requests only, and never uploads Figma document content."
   }
 }

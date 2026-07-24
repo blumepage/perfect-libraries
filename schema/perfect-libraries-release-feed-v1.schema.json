@@ -1,0 +1,50 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://raw.githubusercontent.com/blumepage/perfect-libraries/main/schema/perfect-libraries-release-feed-v1.schema.json",
+  "title": "Perfect Libraries release feed",
+  "description": "Points Perfect Libraries at the latest generated manifest for a design-system library.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["$schema", "version", "library", "latest"],
+  "properties": {
+    "$schema": {
+      "const": "https://raw.githubusercontent.com/blumepage/perfect-libraries/main/schema/perfect-libraries-release-feed-v1.schema.json"
+    },
+    "version": { "const": 1 },
+    "library": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "name"],
+      "properties": {
+        "id": { "type": "string", "minLength": 1 },
+        "name": { "type": "string", "minLength": 1 }
+      }
+    },
+    "latest": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["release", "changelog"],
+      "properties": {
+        "release": { "type": "string", "minLength": 1 },
+        "status": { "enum": ["pending", "published"] },
+        "changelog": { "type": "string", "minLength": 1 },
+        "publishedAt": { "type": "string", "format": "date-time" },
+        "sourceUrl": { "type": "string", "format": "uri" },
+        "manifestUrl": { "type": "string", "minLength": 1 },
+        "manifest": {
+          "$ref": "perfect-libraries-v1.schema.json"
+        }
+      },
+      "oneOf": [
+        {
+          "required": ["manifestUrl"],
+          "not": { "required": ["manifest"] }
+        },
+        {
+          "required": ["manifest"],
+          "not": { "required": ["manifestUrl"] }
+        }
+      ]
+    }
+  }
+}

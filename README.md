@@ -23,8 +23,10 @@ Perfect Libraries then:
 - audits ambiguous sources and missing Auto Layout;
 - never adopts, deletes, or prunes user-owned content automatically.
 
-Perfect Libraries runs entirely inside Figma. The Community build requests no
-network access and does not upload manifests or document content.
+Perfect Libraries runs entirely inside Figma. Its optional release checker sends
+GET requests only to a feed URL the user explicitly connects. The Community
+build permits the open Perfect Libraries feed service and public files on
+`raw.githubusercontent.com`; it never uploads manifests or document content.
 
 ## Why the plugin and the HTML converter are separate
 
@@ -76,12 +78,14 @@ Re-run the plugin in Figma after each rebuild.
 1. Render each component variant to HTML/CSS.
 2. Import those variants as editable frames on one Figma page.
 3. Give every source frame the exact `sourceNode` name from the manifest.
-4. Run Perfect Libraries and load the JSON manifest.
-5. Click **Inspect sources**.
-6. Resolve missing, duplicate, or non-Auto-Layout warnings.
-7. Click **Apply to library**.
-8. Review the selected generated components.
-9. Publish the Figma library manually.
+4. Run Perfect Libraries and either load JSON locally or connect a release feed.
+5. If a release is available, review its version and changelog and click
+   **Load update**.
+6. Click **Inspect sources**.
+7. Resolve missing, duplicate, or non-Auto-Layout warnings.
+8. Click **Apply to library**.
+9. Review the selected generated components.
+10. Use Figma's native **Publish changes** flow.
 
 The plugin is idempotent. Re-running a newer release updates entities with the
 same stable manifest IDs. It never uses display names as ownership proof.
@@ -131,6 +135,51 @@ Stable IDs are the update contract:
 - collection, token, component, and variant IDs must never be repurposed;
 - renaming an entity while keeping its ID updates it in place;
 - changing a variable's type or moving it between collections requires a new ID.
+
+## Release feeds
+
+For a one-click merge-to-review handoff, connect either a direct manifest URL
+or a release-feed document. Perfect Libraries stores the URL in Figma's local
+plugin storage, checks it when the plugin opens, and shows the latest release,
+changelog, and whether that exact release is already applied in the current
+file.
+
+The release-feed schema is
+[`schema/perfect-libraries-release-feed-v1.schema.json`](schema/perfect-libraries-release-feed-v1.schema.json);
+[`examples/release-feed.json`](examples/release-feed.json) is a working example:
+
+```json
+{
+  "$schema": "https://raw.githubusercontent.com/blumepage/perfect-libraries/main/schema/perfect-libraries-release-feed-v1.schema.json",
+  "version": 1,
+  "library": {
+    "id": "dev.example.design-system",
+    "name": "Example Design System"
+  },
+  "latest": {
+    "release": "1.2.0",
+    "status": "pending",
+    "changelog": "Added compact buttons and updated focus colors.",
+    "manifestUrl": "./perfect-libraries.json",
+    "sourceUrl": "https://github.com/example/design-system/releases/tag/ui-v1.2.0"
+  }
+}
+```
+
+`manifestUrl` and `sourceUrl` may be relative to the feed. A feed may instead
+embed the manifest as `latest.manifest`, but it must provide exactly one of
+`manifest` or `manifestUrl`. The library ID and release in the fetched manifest
+must match the feed before Perfect Libraries will offer it.
+
+The public Community build supports feeds served by
+`ui-libraries.blume-page.com` and public GitHub raw URLs. Self-hosted
+distributions can add their own trusted host to `networkAccess.allowedDomains`
+in `manifest.template.json`.
+
+The repository also includes the optional, self-hostable Cloudflare Worker in
+[`services/release-service`](services/release-service). It provides authenticated
+release ingest, public feeds and immutable manifests, KV-backed publication
+state, and Figma `LIBRARY_PUBLISH` webhook handling.
 
 ### Source layers
 
@@ -208,18 +257,24 @@ merge UI change
 → build Storybook
 → render/export component variants
 → generate perfect-libraries.json
-→ attach manifest and visual report to the release
-→ maintainer opens the canonical Figma library
-→ Perfect Libraries: Inspect → Apply
-→ maintainer reviews and publishes the library
+→ update the library's release-feed document
+→ maintainer sees “Update available” in Perfect Libraries
+→ Load update → Inspect → Apply
+→ maintainer reviews selected assets
+→ maintainer uses Figma’s native Publish changes flow
 ```
 
 Figma plugins cannot run in the background, and Figma still requires the final
-library publication to be initiated in the editor.
+library publication to be approved in the editor. Perfect Libraries makes that
+handoff explicit after a successful apply; it does not claim to publish the
+library itself.
 
 ## Safety model
 
-- Network permission is disabled.
+- Release checks are explicit GET-only requests to the connected feed and its
+  declared manifest URL.
+- No Figma document data, manifest content, credentials, or telemetry is
+  uploaded.
 - Only entities tagged with matching Perfect Libraries ownership metadata are
   updated.
 - Untagged name conflicts stop the sync.

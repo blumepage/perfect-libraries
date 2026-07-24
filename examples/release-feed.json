@@ -1,0 +1,16 @@
+{
+  "$schema": "https://raw.githubusercontent.com/blumepage/perfect-libraries/main/schema/perfect-libraries-release-feed-v1.schema.json",
+  "version": 1,
+  "library": {
+    "id": "dev.example.starter",
+    "name": "Starter UI"
+  },
+  "latest": {
+    "release": "1.0.0",
+    "status": "pending",
+    "changelog": "Initial button component and light/dark design tokens.",
+    "publishedAt": "2026-07-24T12:00:00Z",
+    "sourceUrl": "https://github.com/blumepage/perfect-libraries/releases/tag/example-v1.0.0",
+    "manifestUrl": "./basic-library.json"
+  }
+}

@@ -12,7 +12,8 @@ Turn imported UI frames into a maintainable component library.
 
 Perfect Libraries promotes editable frames from any HTML-to-Figma tool into
 token-bound Figma components, variants, nested instances, and component
-properties. Updates are repeatable, local-only, and safe by default.
+properties. Updates are repeatable and safe by default. An optional release
+checker can fetch a user-connected manifest/feed without uploading Figma data.
 
 ## Full description
 
@@ -29,7 +30,7 @@ components in place, preserving existing instance references.
 
 Safety is part of the format:
 
-- no network permission;
+- limited, GET-only network access for the user-connected release feed;
 - no analytics or uploaded document content;
 - no automatic adoption of existing content;
 - no automatic pruning or deletion;
@@ -68,6 +69,7 @@ License: MIT
    - manifest inspection;
    - variable collections and modes;
    - generated component set with nested instances.
-5. Confirm the listing reports **No network access**.
+5. Confirm the listing explains that network access is limited to checking the
+   user-connected release feed and never uploads Figma content.
 6. Add the support URL and MIT source URL.
 7. Submit to Community review.

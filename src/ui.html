@@ -28,6 +28,17 @@
         font: inherit;
       }
 
+      input[type="url"] {
+        width: 100%;
+        min-width: 0;
+        height: 32px;
+        padding: 0 9px;
+        border: 1px solid var(--figma-color-border);
+        border-radius: 7px;
+        color: var(--figma-color-text);
+        background: var(--figma-color-bg);
+      }
+
       button {
         min-height: 32px;
         padding: 0 12px;
@@ -161,6 +172,95 @@
         border-color: transparent;
         color: var(--figma-color-text-brand);
         background: transparent;
+      }
+
+      .feed-row {
+        display: grid;
+        grid-template-columns: minmax(0, 1fr) auto;
+        gap: 6px;
+      }
+
+      .feed-buttons {
+        display: flex;
+        justify-content: flex-end;
+        gap: 4px;
+      }
+
+      .release-panel {
+        overflow: hidden;
+        border: 1px solid var(--figma-color-border);
+        border-radius: 8px;
+        background: var(--figma-color-bg-secondary);
+      }
+
+      .release-panel.pending {
+        border-color: var(--figma-color-border-brand);
+        background: var(--figma-color-bg-brand-tertiary);
+      }
+
+      .release-panel.current {
+        border-color: var(--figma-color-border-success);
+        background: var(--figma-color-bg-success-tertiary);
+      }
+
+      .release-panel.error {
+        padding: 10px 12px;
+        border-color: var(--figma-color-border-danger);
+        color: var(--figma-color-text-danger);
+        background: var(--figma-color-bg-danger-tertiary);
+      }
+
+      .release-panel.error p {
+        margin-top: 4px;
+        white-space: pre-wrap;
+      }
+
+      .release-heading {
+        display: flex;
+        align-items: flex-start;
+        justify-content: space-between;
+        gap: 8px;
+        padding: 10px 12px 8px;
+      }
+
+      .release-heading div {
+        display: flex;
+        flex-direction: column;
+        gap: 2px;
+      }
+
+      .release-heading span,
+      .changelog,
+      .fine-print {
+        color: var(--figma-color-text-secondary);
+      }
+
+      .release-badge {
+        padding: 2px 6px;
+        border-radius: 99px;
+        color: var(--figma-color-text-brand) !important;
+        background: var(--figma-color-bg-brand-secondary);
+        font-size: 10px;
+      }
+
+      .changelog {
+        padding: 0 12px 10px;
+        line-height: 16px;
+        white-space: pre-wrap;
+      }
+
+      .release-actions {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 8px;
+        padding: 8px 10px;
+        border-top: 1px solid var(--figma-color-border);
+      }
+
+      .release-actions a {
+        color: var(--figma-color-text-brand);
+        text-decoration: none;
       }
 
       .dropzone {
@@ -317,6 +417,24 @@
         color: var(--figma-color-text-danger);
       }
 
+      .publish-handoff {
+        margin-top: 10px;
+        padding: 10px;
+        border: 1px solid var(--figma-color-border-brand);
+        border-radius: 7px;
+        color: var(--figma-color-text);
+        background: var(--figma-color-bg-brand-tertiary);
+      }
+
+      .publish-handoff p {
+        margin-top: 4px;
+        line-height: 16px;
+      }
+
+      .publish-handoff .fine-print {
+        font-size: 10px;
+      }
+
       .actions {
         display: grid;
         grid-template-columns: 1fr 1.25fr;
@@ -372,6 +490,31 @@
 
       <section class="section">
         <div class="section-label">
+          <h2>Release source</h2>
+          <div class="feed-buttons">
+            <button class="text-button" id="clear-feed" type="button" disabled>Clear</button>
+            <button class="text-button" id="check-feed" type="button" disabled>Check again</button>
+          </div>
+        </div>
+        <div class="feed-row">
+          <input
+            id="feed-url"
+            type="url"
+            inputmode="url"
+            autocomplete="off"
+            spellcheck="false"
+            placeholder="https://example.com/perfect-libraries-feed.json"
+            aria-label="Manifest or release-feed URL"
+          />
+          <button id="save-feed" type="button">Connect</button>
+        </div>
+        <section class="release-panel" id="release-panel">
+          <span class="empty">Connect a direct manifest or release-feed URL to check for updates.</span>
+        </section>
+      </section>
+
+      <section class="section">
+        <div class="section-label">
           <h2>Manifest</h2>
           <button class="text-button" id="demo" type="button">Load example</button>
         </div>
@@ -401,7 +544,7 @@
         <svg viewBox="0 0 16 16" fill="none" aria-hidden="true">
           <path d="M4.5 7V5.5a3.5 3.5 0 1 1 7 0V7M3 7h10v7H3V7Z" stroke="currentColor" stroke-width="1.2" stroke-linejoin="round"/>
         </svg>
-        <span>Local-only by design. Perfect Libraries has no network permission and never uploads your manifest or Figma content.</span>
+        <span>Perfect Libraries only sends GET requests to the release URL you configure. It never uploads your manifest or Figma document content.</span>
       </div>
 
       <div class="actions">

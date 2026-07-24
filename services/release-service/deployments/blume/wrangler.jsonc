@@ -1,0 +1,32 @@
+{
+  "$schema": "../../node_modules/wrangler/config-schema.json",
+  "name": "perfect-libraries-release-service",
+  "main": "../../src/index.ts",
+  "compatibility_date": "2026-07-24",
+  "workers_dev": false,
+  "routes": [
+    {
+      "pattern": "ui-libraries.blume-page.com/*",
+      "zone_name": "blume-page.com"
+    }
+  ],
+  "kv_namespaces": [
+    {
+      "binding": "RELEASES",
+      "id": "4c9c477c8cb2431fb5249a340adbec8d"
+    }
+  ],
+  "vars": {
+    "ALLOWED_LIBRARY_IDS": "page.blume.ui"
+  },
+  "observability": {
+    "enabled": true,
+    "logs": {
+      "head_sampling_rate": 1
+    },
+    "traces": {
+      "enabled": true,
+      "head_sampling_rate": 0.05
+    }
+  }
+}

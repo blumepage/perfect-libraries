@@ -33,7 +33,8 @@ from manifest**.
 
 - Keep the manifest format backward compatible within schema version 1.
 - Add focused tests for validation or update behavior changes.
-- Preserve local-only operation unless a proposal explains why network access
-  is necessary.
+- Keep release discovery GET-only, user-configured, and narrowly scoped to
+  trusted hosts in the Figma manifest. Never transmit Figma document content,
+  manifests, credentials, or telemetry.
 - Do not automatically adopt, delete, or prune user-owned Figma content.
 - Run `pnpm typecheck` and `pnpm test` before opening a pull request.

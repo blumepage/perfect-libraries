@@ -12,11 +12,34 @@ interface ReportMessage {
   errors: string[];
   warnings: string[];
   details: string[];
+  publishHandoff?: {
+    libraryName: string;
+    release: string;
+  };
 }
 
 interface BusyMessage {
   type: "busy";
   busy: boolean;
+}
+
+interface ReleaseStateMessage {
+  type: "release-state";
+  configuredUrl: string;
+  loading: boolean;
+  error?: string;
+  currentRelease?: string;
+  release?: {
+    libraryId: string;
+    libraryName: string;
+    release: string;
+    status?: "pending" | "published";
+    changelog: string;
+    publishedAt?: string;
+    sourceUrl?: string;
+    pending: boolean;
+    manifest: PerfectLibrariesManifest;
+  };
 }
 
 const editor = requireElement<HTMLTextAreaElement>("manifest");
@@ -29,10 +52,42 @@ const report = requireElement<HTMLElement>("report");
 const summary = requireElement<HTMLElement>("summary");
 const statusDot = requireElement<HTMLElement>("status-dot");
 const statusText = requireElement<HTMLElement>("status-text");
+const feedUrl = requireElement<HTMLInputElement>("feed-url");
+const saveFeedButton = requireElement<HTMLButtonElement>("save-feed");
+const clearFeedButton = requireElement<HTMLButtonElement>("clear-feed");
+const checkFeedButton = requireElement<HTMLButtonElement>("check-feed");
+const releasePanel = requireElement<HTMLElement>("release-panel");
 
 let parsedManifest: PerfectLibrariesManifest | undefined;
 let inspectedSource = "";
 let busy = false;
+let discoveredRelease: ReleaseStateMessage["release"];
+
+saveFeedButton.addEventListener("click", () => {
+  parent.postMessage(
+    { pluginMessage: { type: "save-feed", url: feedUrl.value } },
+    "*",
+  );
+});
+
+checkFeedButton.addEventListener("click", () => {
+  parent.postMessage({ pluginMessage: { type: "check-feed" } }, "*");
+});
+
+clearFeedButton.addEventListener("click", () => {
+  parent.postMessage({ pluginMessage: { type: "clear-feed" } }, "*");
+});
+
+releasePanel.addEventListener("click", (event) => {
+  const target = event.target;
+  if (!(target instanceof HTMLElement)) return;
+  if (target.closest("#load-release") && discoveredRelease) {
+    editor.value = JSON.stringify(discoveredRelease.manifest, null, 2);
+    inspectedSource = "";
+    applyButton.disabled = true;
+    renderLocalValidation();
+  }
+});
 
 editor.addEventListener("input", () => {
   inspectedSource = "";
@@ -93,17 +148,93 @@ applyButton.addEventListener("click", () => {
   );
 });
 
-window.onmessage = (event: MessageEvent<{ pluginMessage?: ReportMessage | BusyMessage }>) => {
+window.onmessage = (
+  event: MessageEvent<{
+    pluginMessage?: ReportMessage | BusyMessage | ReleaseStateMessage;
+  }>,
+) => {
   const message = event.data.pluginMessage;
   if (!message) return;
   if (message.type === "busy") {
     setBusy(message.busy);
     return;
   }
+  if (message.type === "release-state") {
+    renderReleaseState(message);
+    return;
+  }
   renderReport(message);
 };
 
 renderLocalValidation();
+parent.postMessage({ pluginMessage: { type: "initialize" } }, "*");
+
+function renderReleaseState(message: ReleaseStateMessage): void {
+  feedUrl.value = message.configuredUrl;
+  feedUrl.disabled = message.loading || busy;
+  saveFeedButton.disabled = message.loading || busy;
+  clearFeedButton.disabled = message.loading || busy || !message.configuredUrl;
+  checkFeedButton.disabled = message.loading || busy || !message.configuredUrl;
+  discoveredRelease = message.release;
+
+  if (message.loading) {
+    releasePanel.className = "release-panel loading";
+    releasePanel.innerHTML =
+      '<span class="empty">Checking for the latest library release…</span>';
+    resize();
+    return;
+  }
+  if (message.error) {
+    releasePanel.className = "release-panel error";
+    releasePanel.innerHTML = `
+      <strong>Couldn’t check this release source</strong>
+      <p>${escapeHtml(message.error)}</p>
+    `;
+    resize();
+    return;
+  }
+  if (!message.release) {
+    releasePanel.className = "release-panel";
+    releasePanel.innerHTML =
+      '<span class="empty">Connect a direct manifest or release-feed URL to check for updates.</span>';
+    resize();
+    return;
+  }
+
+  const value = message.release;
+  const stateLabel = value.pending
+    ? message.currentRelease
+      ? `Update from ${escapeHtml(message.currentRelease)}`
+      : "Not applied in this file"
+    : "Already applied";
+  const publicationLabel =
+    value.status === "published"
+      ? "Published in Figma"
+      : value.status === "pending"
+        ? "Awaiting Figma publication"
+        : undefined;
+  releasePanel.className = `release-panel ${value.pending ? "pending" : "current"}`;
+  releasePanel.innerHTML = `
+    <div class="release-heading">
+      <div>
+        <strong>${escapeHtml(value.libraryName)} ${escapeHtml(value.release)}</strong>
+        <span>${stateLabel}</span>
+        ${publicationLabel ? `<span>${publicationLabel}</span>` : ""}
+      </div>
+      <span class="release-badge">${value.pending ? "Available" : "Current"}</span>
+    </div>
+    <p class="changelog">${escapeHtml(value.changelog)}</p>
+    <div class="release-actions">
+      ${
+        value.sourceUrl
+          ? `<a href="${escapeAttribute(value.sourceUrl)}" target="_blank" rel="noreferrer">View release notes</a>`
+          : "<span></span>"
+      }
+      <button id="load-release" type="button">${value.pending ? "Load update" : "Load manifest"}</button>
+    </div>
+  `;
+  resize();
+}
 
 async function loadFile(file: File): Promise<void> {
   if (!file.name.toLowerCase().endsWith(".json")) {
@@ -182,6 +313,11 @@ function renderReport(message: ReportMessage): void {
     ${renderList(message.errors, "error")}
     ${renderList(message.warnings, "warning")}
     ${renderList(message.details, "detail")}
+    ${
+      message.publishHandoff
+        ? renderPublishHandoff(message.publishHandoff)
+        : ""
+    }
   `;
   if (message.ok) {
     inspectedSource = editor.value;
@@ -192,6 +328,19 @@ function renderReport(message: ReportMessage): void {
     setStatus("error", "Resolve the reported issues");
   }
   resize();
+}
+
+function renderPublishHandoff(value: {
+  libraryName: string;
+  release: string;
+}): string {
+  return `
+    <div class="publish-handoff">
+      <strong>Ready for native publishing</strong>
+      <p>${escapeHtml(value.libraryName)} ${escapeHtml(value.release)} is applied. Review the selected assets, then open Figma’s Libraries panel and choose <strong>Publish changes</strong>.</p>
+      <p class="fine-print">Figma requires a person with edit access to approve the final library publication.</p>
+    </div>
+  `;
 }
 
 function renderList(items: string[], kind: string): string {
@@ -212,7 +361,15 @@ function setBusy(value: boolean): void {
   demoButton.disabled = value;
   inspectButton.disabled = value;
   applyButton.disabled = value || !parsedManifest || editor.value !== inspectedSource;
+  feedUrl.disabled = value;
+  saveFeedButton.disabled = value;
+  clearFeedButton.disabled = value || !feedUrl.value.trim();
+  checkFeedButton.disabled = value || !feedUrl.value.trim();
   document.body.dataset.busy = value ? "true" : "false";
+}
+
+function escapeAttribute(value: string): string {
+  return escapeHtml(value);
 }
 
 function setStatus(state: "neutral" | "ready" | "error", text: string): void {
