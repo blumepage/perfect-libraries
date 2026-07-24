@@ -1,0 +1,231 @@
+{
+  "$schema": "https://raw.githubusercontent.com/blumepage/perfect-libraries/main/schema/perfect-libraries-v1.schema.json",
+  "version": 1,
+  "library": {
+    "id": "dev.example.starter",
+    "name": "Starter UI",
+    "release": "1.0.0"
+  },
+  "tokenCollections": [
+    {
+      "id": "primitives",
+      "name": "Primitives",
+      "modes": ["Value"],
+      "tokens": [
+        {
+          "id": "white",
+          "name": "white/1000",
+          "type": "COLOR",
+          "scopes": [],
+          "codeSyntax": {
+            "WEB": "var(--white)"
+          },
+          "values": {
+            "Value": "#ffffff"
+          }
+        },
+        {
+          "id": "ink",
+          "name": "ink/1000",
+          "type": "COLOR",
+          "scopes": [],
+          "codeSyntax": {
+            "WEB": "var(--ink)"
+          },
+          "values": {
+            "Value": "#1f1d1a"
+          }
+        },
+        {
+          "id": "violet",
+          "name": "violet/600",
+          "type": "COLOR",
+          "scopes": [],
+          "codeSyntax": {
+            "WEB": "var(--violet-600)"
+          },
+          "values": {
+            "Value": "#6f56d9"
+          }
+        }
+      ]
+    },
+    {
+      "id": "color",
+      "name": "Color",
+      "modes": ["Light", "Dark"],
+      "tokens": [
+        {
+          "id": "surface",
+          "name": "color/bg/surface",
+          "type": "COLOR",
+          "scopes": ["FRAME_FILL", "SHAPE_FILL"],
+          "codeSyntax": {
+            "WEB": "var(--color-bg-surface)"
+          },
+          "values": {
+            "Light": { "alias": "white" },
+            "Dark": { "alias": "ink" }
+          }
+        },
+        {
+          "id": "action",
+          "name": "color/bg/action",
+          "type": "COLOR",
+          "scopes": ["FRAME_FILL", "SHAPE_FILL"],
+          "codeSyntax": {
+            "WEB": "var(--color-bg-action)"
+          },
+          "values": {
+            "Light": { "alias": "violet" },
+            "Dark": { "alias": "violet" }
+          }
+        },
+        {
+          "id": "on-action",
+          "name": "color/text/on-action",
+          "type": "COLOR",
+          "scopes": ["TEXT_FILL"],
+          "codeSyntax": {
+            "WEB": "var(--color-text-on-action)"
+          },
+          "values": {
+            "Light": { "alias": "white" },
+            "Dark": { "alias": "white" }
+          }
+        }
+      ]
+    },
+    {
+      "id": "spacing",
+      "name": "Spacing",
+      "modes": ["Value"],
+      "tokens": [
+        {
+          "id": "space-2",
+          "name": "spacing/2",
+          "type": "FLOAT",
+          "scopes": ["GAP"],
+          "codeSyntax": {
+            "WEB": "var(--space-2)"
+          },
+          "values": {
+            "Value": 8
+          }
+        },
+        {
+          "id": "space-3",
+          "name": "spacing/3",
+          "type": "FLOAT",
+          "scopes": ["GAP"],
+          "codeSyntax": {
+            "WEB": "var(--space-3)"
+          },
+          "values": {
+            "Value": 12
+          }
+        },
+        {
+          "id": "radius-control",
+          "name": "radius/control",
+          "type": "FLOAT",
+          "scopes": ["CORNER_RADIUS"],
+          "codeSyntax": {
+            "WEB": "var(--radius-control)"
+          },
+          "values": {
+            "Value": 8
+          }
+        }
+      ]
+    }
+  ],
+  "components": [
+    {
+      "id": "button",
+      "name": "Button",
+      "description": "Triggers an immediate action.",
+      "documentationUrl": "https://example.com/storybook/?path=/docs/button",
+      "properties": [
+        {
+          "type": "TEXT",
+          "name": "Label",
+          "layer": "label",
+          "defaultValue": "Continue"
+        }
+      ],
+      "variants": [
+        {
+          "id": "button-primary-small",
+          "sourceNode": "Button / Primary / Small",
+          "properties": {
+            "Style": "Primary",
+            "Size": "Small"
+          },
+          "bindings": [
+            {
+              "layer": "$",
+              "property": "fill",
+              "token": "action"
+            },
+            {
+              "layer": "$",
+              "property": "padding-top",
+              "token": "space-2"
+            },
+            {
+              "layer": "$",
+              "property": "padding-bottom",
+              "token": "space-2"
+            },
+            {
+              "layer": "$",
+              "property": "padding-left",
+              "token": "space-3"
+            },
+            {
+              "layer": "$",
+              "property": "padding-right",
+              "token": "space-3"
+            },
+            {
+              "layer": "$",
+              "property": "radius",
+              "token": "radius-control"
+            },
+            {
+              "layer": "label",
+              "property": "text-fill",
+              "token": "on-action"
+            }
+          ]
+        },
+        {
+          "id": "button-primary-large",
+          "sourceNode": "Button / Primary / Large",
+          "properties": {
+            "Style": "Primary",
+            "Size": "Large"
+          },
+          "bindings": [
+            {
+              "layer": "$",
+              "property": "fill",
+              "token": "action"
+            },
+            {
+              "layer": "$",
+              "property": "radius",
+              "token": "radius-control"
+            },
+            {
+              "layer": "label",
+              "property": "text-fill",
+              "token": "on-action"
+            }
+          ]
+        }
+      ]
+    }
+  ]
+}
