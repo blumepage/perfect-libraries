@@ -39,6 +39,14 @@ const releaseFeedOptions = {
   platform: "node",
 };
 
+const sourcesOptions = {
+  ...common,
+  entryPoints: [new URL("src/sources.ts", root).pathname],
+  outfile: new URL("sources.mjs", dist).pathname,
+  format: "esm",
+  platform: "node",
+};
+
 async function buildUi() {
   const result = await build({
     ...common,
@@ -71,10 +79,12 @@ if (watch) {
   const pluginContext = await context(pluginOptions);
   const manifestContext = await context(manifestOptions);
   const releaseFeedContext = await context(releaseFeedOptions);
+  const sourcesContext = await context(sourcesOptions);
   await Promise.all([
     pluginContext.watch(),
     manifestContext.watch(),
     releaseFeedContext.watch(),
+    sourcesContext.watch(),
   ]);
   await Promise.all([buildUi(), buildManifest()]);
   console.log("Perfect Libraries is watching. Re-run the plugin in Figma after changes.");
@@ -83,6 +93,7 @@ if (watch) {
     build(pluginOptions),
     build(manifestOptions),
     build(releaseFeedOptions),
+    build(sourcesOptions),
     buildUi(),
     buildManifest(),
   ]);

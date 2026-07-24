@@ -1,0 +1,24 @@
+{
+  "name": "@perfect-libraries/storybook-exporter",
+  "version": "0.1.0",
+  "description": "Export tagged Storybook component variants as editable, Auto Layout-aware Perfect Libraries source data.",
+  "license": "MIT",
+  "type": "module",
+  "bin": {
+    "perfect-libraries-storybook-export": "./src/cli.mjs"
+  },
+  "exports": {
+    ".": "./src/index.mjs",
+    "./browser": "./src/browser-capture.js"
+  },
+  "files": [
+    "src",
+    "README.md"
+  ],
+  "engines": {
+    "node": ">=22"
+  },
+  "dependencies": {
+    "playwright": "1.62.0"
+  }
+}

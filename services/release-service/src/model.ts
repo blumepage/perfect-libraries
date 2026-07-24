@@ -17,6 +17,7 @@ export interface LibraryRelease {
     createdAt: string;
     changelog: string;
     manifestUrl: string;
+    sourcesUrl?: string;
     sourceUrl?: string;
     gitSha?: string;
     tag?: string;
@@ -46,6 +47,7 @@ export interface ReleaseIngest {
     links?: Record<string, string>;
   };
   manifest: Record<string, unknown>;
+  sources?: Record<string, unknown>;
 }
 
 export interface PublicReleaseFeed {
@@ -60,6 +62,7 @@ export interface PublicReleaseFeed {
     status: "pending" | "published";
     changelog: string;
     manifestUrl: string;
+    sourcesUrl?: string;
     sourceUrl?: string;
     publishedAt?: string;
   };
@@ -145,6 +148,24 @@ function validManifest(
   );
 }
 
+function validSources(
+  value: unknown,
+  libraryId: string,
+  release: string,
+): value is Record<string, unknown> {
+  if (!record(value)) return false;
+  const library = value.library;
+  return (
+    value.$schema ===
+      "https://raw.githubusercontent.com/blumepage/perfect-libraries/main/schema/perfect-libraries-sources-v1.schema.json" &&
+    value.version === 1 &&
+    record(library) &&
+    library.id === libraryId &&
+    library.release === release &&
+    Array.isArray(value.variants)
+  );
+}
+
 export function parseReleaseIngest(value: unknown): ReleaseIngest | null {
   if (!record(value) || value.schemaVersion !== 1) return null;
   const library = value.library;
@@ -181,7 +202,9 @@ export function parseReleaseIngest(value: unknown): ReleaseIngest | null {
       library.id,
       library.name,
       release.version,
-    )
+    ) ||
+    (value.sources !== undefined &&
+      !validSources(value.sources, library.id, release.version))
   ) {
     return null;
   }
@@ -209,6 +232,7 @@ export function parseReleaseIngest(value: unknown): ReleaseIngest | null {
       ...(release.links ? { links: release.links } : {}),
     },
     manifest: value.manifest,
+    ...(record(value.sources) ? { sources: value.sources } : {}),
   };
 }
 
@@ -227,6 +251,9 @@ export function toPublicReleaseFeed(
       status: release.release.status,
       changelog: release.release.changelog,
       manifestUrl: release.release.manifestUrl,
+      ...(release.release.sourcesUrl
+        ? { sourcesUrl: release.release.sourcesUrl }
+        : {}),
       ...(release.release.sourceUrl
         ? { sourceUrl: release.release.sourceUrl }
         : {}),

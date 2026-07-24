@@ -15,6 +15,7 @@ export interface ReleaseFeedLatest {
   manifestUrl?: string;
   publishedAt?: string;
   sourceUrl?: string;
+  sourcesUrl?: string;
 }
 
 export interface PerfectLibrariesReleaseFeed {
@@ -35,6 +36,7 @@ export interface ResolvedRelease {
   changelog: string;
   publishedAt?: string;
   sourceUrl?: string;
+  sourcesUrl?: string;
   manifest?: PerfectLibrariesManifest;
   manifestUrl?: string;
 }
@@ -142,6 +144,9 @@ export function parseReleaseFeed(
     if (!optionalString(latest.sourceUrl)) {
       errors.push("latest.sourceUrl must be a string.");
     }
+    if (!optionalString(latest.sourcesUrl)) {
+      errors.push("latest.sourcesUrl must be a string.");
+    }
 
     const hasInlineManifest = latest.manifest !== undefined;
     const hasManifestUrl = nonEmptyString(latest.manifestUrl);
@@ -159,6 +164,12 @@ export function parseReleaseFeed(
       !resolveHttpUrl(latest.sourceUrl, feedUrl)
     ) {
       errors.push("latest.sourceUrl must resolve to an HTTP(S) URL.");
+    }
+    if (
+      nonEmptyString(latest.sourcesUrl) &&
+      !resolveHttpUrl(latest.sourcesUrl, feedUrl)
+    ) {
+      errors.push("latest.sourcesUrl must resolve to an HTTP(S) URL.");
     }
   }
 
@@ -210,6 +221,9 @@ export function parseReleaseFeed(
         : {}),
       ...(nonEmptyString(latest.sourceUrl)
         ? { sourceUrl: resolveHttpUrl(latest.sourceUrl, feedUrl) }
+        : {}),
+      ...(nonEmptyString(latest.sourcesUrl)
+        ? { sourcesUrl: resolveHttpUrl(latest.sourcesUrl, feedUrl) }
         : {}),
       ...(manifest ? { manifest } : {}),
       ...(nonEmptyString(latest.manifestUrl)

@@ -1,0 +1,161 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://raw.githubusercontent.com/blumepage/perfect-libraries/main/schema/perfect-libraries-sources-v1.schema.json",
+  "title": "Perfect Libraries Storybook Sources",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["$schema", "version", "library", "generatedAt", "variants"],
+  "properties": {
+    "$schema": {
+      "const": "https://raw.githubusercontent.com/blumepage/perfect-libraries/main/schema/perfect-libraries-sources-v1.schema.json"
+    },
+    "version": { "const": 1 },
+    "library": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "release"],
+      "properties": {
+        "id": { "type": "string", "minLength": 1 },
+        "release": { "type": "string", "minLength": 1 }
+      }
+    },
+    "generatedAt": { "type": "string", "format": "date-time" },
+    "variants": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["id", "sourceNode", "scene"],
+        "properties": {
+          "id": { "type": "string", "minLength": 1 },
+          "sourceNode": { "type": "string", "minLength": 1 },
+          "warnings": {
+            "type": "array",
+            "items": { "type": "string" }
+          },
+          "scene": { "$ref": "#/$defs/sceneNode" }
+        }
+      }
+    }
+  },
+  "$defs": {
+    "paint": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["type", "color"],
+      "properties": {
+        "type": { "const": "SOLID" },
+        "opacity": { "type": "number", "minimum": 0, "maximum": 1 },
+        "color": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["r", "g", "b"],
+          "properties": {
+            "r": { "type": "number", "minimum": 0, "maximum": 1 },
+            "g": { "type": "number", "minimum": 0, "maximum": 1 },
+            "b": { "type": "number", "minimum": 0, "maximum": 1 }
+          }
+        }
+      }
+    },
+    "base": {
+      "type": "object",
+      "required": ["type", "name", "width", "height"],
+      "properties": {
+        "type": { "enum": ["FRAME", "TEXT", "RECTANGLE", "VECTOR"] },
+        "name": { "type": "string", "minLength": 1 },
+        "width": { "type": "number", "exclusiveMinimum": 0 },
+        "height": { "type": "number", "exclusiveMinimum": 0 },
+        "x": { "type": "number" },
+        "y": { "type": "number" },
+        "opacity": { "type": "number", "minimum": 0, "maximum": 1 }
+      }
+    },
+    "sceneNode": {
+      "oneOf": [
+        {
+          "allOf": [
+            { "$ref": "#/$defs/base" },
+            {
+              "type": "object",
+              "required": ["layoutMode", "children"],
+              "properties": {
+                "type": { "const": "FRAME" },
+                "layoutMode": { "enum": ["HORIZONTAL", "VERTICAL", "NONE"] },
+                "primaryAxisSizingMode": { "enum": ["FIXED", "AUTO"] },
+                "counterAxisSizingMode": { "enum": ["FIXED", "AUTO"] },
+                "primaryAxisAlignItems": { "enum": ["MIN", "MAX", "CENTER", "SPACE_BETWEEN"] },
+                "counterAxisAlignItems": { "enum": ["MIN", "MAX", "CENTER", "BASELINE"] },
+                "layoutWrap": { "enum": ["NO_WRAP", "WRAP"] },
+                "paddingTop": { "type": "number" },
+                "paddingRight": { "type": "number" },
+                "paddingBottom": { "type": "number" },
+                "paddingLeft": { "type": "number" },
+                "itemSpacing": { "type": "number" },
+                "counterAxisSpacing": { "type": "number" },
+                "cornerRadius": { "type": "number" },
+                "fills": { "type": "array", "items": { "$ref": "#/$defs/paint" } },
+                "strokes": { "type": "array", "items": { "$ref": "#/$defs/paint" } },
+                "strokeWeight": { "type": "number" },
+                "clipsContent": { "type": "boolean" },
+                "children": {
+                  "type": "array",
+                  "items": { "$ref": "#/$defs/sceneNode" }
+                }
+              }
+            }
+          ]
+        },
+        {
+          "allOf": [
+            { "$ref": "#/$defs/base" },
+            {
+              "type": "object",
+              "required": ["characters", "fontFamily", "fontStyle", "fontSize"],
+              "properties": {
+                "type": { "const": "TEXT" },
+                "characters": { "type": "string" },
+                "fontFamily": { "type": "string" },
+                "fontStyle": { "type": "string" },
+                "fontSize": { "type": "number" },
+                "fontWeight": { "type": "number" },
+                "lineHeight": { "type": "number" },
+                "letterSpacing": { "type": "number" },
+                "textAlignHorizontal": { "enum": ["LEFT", "CENTER", "RIGHT", "JUSTIFIED"] },
+                "fills": { "type": "array", "items": { "$ref": "#/$defs/paint" } }
+              }
+            }
+          ]
+        },
+        {
+          "allOf": [
+            { "$ref": "#/$defs/base" },
+            {
+              "type": "object",
+              "properties": {
+                "type": { "const": "RECTANGLE" },
+                "cornerRadius": { "type": "number" },
+                "fills": { "type": "array", "items": { "$ref": "#/$defs/paint" } },
+                "strokes": { "type": "array", "items": { "$ref": "#/$defs/paint" } },
+                "strokeWeight": { "type": "number" }
+              }
+            }
+          ]
+        },
+        {
+          "allOf": [
+            { "$ref": "#/$defs/base" },
+            {
+              "type": "object",
+              "required": ["svg"],
+              "properties": {
+                "type": { "const": "VECTOR" },
+                "svg": { "type": "string", "minLength": 1 }
+              }
+            }
+          ]
+        }
+      ]
+    }
+  }
+}

@@ -58,6 +58,14 @@ function releasePayload(version = "1.2.0", libraryId = "dev.example.ui"): object
       tokenCollections: [],
       components: [],
     },
+    sources: {
+      $schema:
+        "https://raw.githubusercontent.com/blumepage/perfect-libraries/main/schema/perfect-libraries-sources-v1.schema.json",
+      version: 1,
+      library: { id: libraryId, release: version },
+      generatedAt: "2026-07-24T10:00:00.000Z",
+      variants: [],
+    },
   };
 }
 
@@ -97,6 +105,10 @@ test("ingests a release and exposes a public feed and immutable manifest", async
   );
   assert.equal(release.latest.status, "pending");
   assert.equal(release.latest.release, "1.2.0");
+  assert.equal(
+    release.latest.sourcesUrl,
+    "https://service.test/v1/libraries/dev.example.ui/releases/1.2.0/sources",
+  );
 
   const manifest = await handleRequest(
     new Request(
@@ -110,6 +122,19 @@ test("ingests a release and exposes a public feed and immutable manifest", async
     ((await manifest.json()) as { library: { release: string } }).library
       .release,
     "1.2.0",
+  );
+
+  const sources = await handleRequest(
+    new Request(
+      "https://service.test/v1/libraries/dev.example.ui/releases/1.2.0/sources",
+    ),
+    testEnv,
+  );
+  assert.equal(sources.status, 200);
+  assert.match(sources.headers.get("cache-control") ?? "", /immutable/);
+  assert.deepEqual(
+    ((await sources.json()) as { library: object }).library,
+    { id: "dev.example.ui", release: "1.2.0" },
   );
 });
 

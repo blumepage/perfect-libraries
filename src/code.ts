@@ -17,6 +17,14 @@ import {
   validateReleaseManifest,
   type ResolvedRelease,
 } from "./release-feed";
+import {
+  validateSources,
+  type PerfectLibrariesSources,
+  type SourceFrameNode,
+  type SourcePaint,
+  type SourceSceneNode,
+  type SourceTextNode,
+} from "./sources";
 
 declare const __html__: string;
 
@@ -25,7 +33,7 @@ const RELEASE_FEED_STORAGE_KEY = "releaseFeedUrl";
 const APPLIED_RELEASES_KEY = "appliedReleases";
 const UI_WIDTH = 420;
 const UI_HEIGHT = 760;
-const MAX_FEED_BYTES = 5_000_000;
+const MAX_FEED_BYTES = 12_000_000;
 
 type ManagedSceneNode = SceneNode & PluginDataMixin;
 type ManagedVariable = Variable & PluginDataMixin;
@@ -94,6 +102,7 @@ interface ReleaseState {
     changelog: string;
     publishedAt?: string;
     sourceUrl?: string;
+    sourcesUrl?: string;
     pending: boolean;
     manifest: PerfectLibrariesManifest;
   };
@@ -260,6 +269,7 @@ function postResolvedRelease(release: ResolvedRelease): void {
       changelog: release.changelog,
       ...(release.publishedAt ? { publishedAt: release.publishedAt } : {}),
       ...(release.sourceUrl ? { sourceUrl: release.sourceUrl } : {}),
+      ...(release.sourcesUrl ? { sourcesUrl: release.sourcesUrl } : {}),
       pending: hasPendingRelease(currentRelease, release.release),
       manifest: release.manifest,
     },
@@ -403,14 +413,36 @@ async function apply(input: unknown): Promise<Report & { type: "report" }> {
   }
 
   const manifest = validation.manifest;
-  const sourceLookup = findSourceNodes(manifest);
+  let sourceLookup = findSourceNodes(manifest);
+  const sourceWarnings: string[] = [];
+  if (
+    sourceLookup.errors.length > 0 &&
+    cachedRelease?.libraryId === manifest.library.id &&
+    cachedRelease.release === manifest.library.release &&
+    cachedRelease.sourcesUrl
+  ) {
+    const input = await fetchJson(cachedRelease.sourcesUrl);
+    const sources = validateSources(input);
+    if (!sources.ok || !sources.sources) {
+      return {
+        type: "report",
+        ok: false,
+        title: "Storybook source export needs attention",
+        errors: sources.errors,
+        warnings: validation.warnings,
+        details: ["The release manifest is valid, but its rendered Storybook source bundle is not."],
+      };
+    }
+    sourceWarnings.push(...await materializeSources(manifest, sources.sources));
+    sourceLookup = findSourceNodes(manifest);
+  }
   if (sourceLookup.errors.length > 0) {
     return {
       type: "report",
       ok: false,
       title: "Nothing changed",
       errors: sourceLookup.errors,
-      warnings: [...validation.warnings, ...sourceLookup.warnings],
+      warnings: [...validation.warnings, ...sourceWarnings, ...sourceLookup.warnings],
       details: ["Resolve source-frame errors and inspect again before applying."],
     };
   }
@@ -427,7 +459,7 @@ async function apply(input: unknown): Promise<Report & { type: "report" }> {
     bindingsApplied: 0,
     componentPropertiesApplied: 0,
   };
-  const warnings = [...validation.warnings, ...sourceLookup.warnings];
+  const warnings = [...validation.warnings, ...sourceWarnings, ...sourceLookup.warnings];
 
   try {
     const variables = await syncVariables(manifest, counters);
@@ -506,6 +538,234 @@ async function apply(input: unknown): Promise<Report & { type: "report" }> {
   }
 }
 
+function sourcePaints(paints: SourcePaint[] | undefined): Paint[] {
+  return (paints ?? []).map((paint) => ({
+    type: "SOLID",
+    color: paint.color,
+    opacity: paint.opacity ?? 1,
+  }));
+}
+
+function normalizedFontName(value: string): string {
+  return value.toLowerCase().replace(/[^a-z0-9]/g, "");
+}
+
+async function sourceFont(
+  source: SourceTextNode,
+  fonts: readonly Font[],
+  loaded: Set<string>,
+): Promise<FontName> {
+  const family = normalizedFontName(source.fontFamily);
+  const style = normalizedFontName(source.fontStyle);
+  const exact = fonts.find(
+    (font) =>
+      normalizedFontName(font.fontName.family) === family &&
+      normalizedFontName(font.fontName.style) === style,
+  );
+  const familyRegular = fonts.find(
+    (font) =>
+      normalizedFontName(font.fontName.family) === family &&
+      normalizedFontName(font.fontName.style) === "regular",
+  );
+  const fallback =
+    fonts.find(
+      (font) =>
+        font.fontName.family === "Inter" &&
+        font.fontName.style === "Regular",
+    ) ?? fonts[0];
+  const selected = exact ?? familyRegular ?? fallback;
+  if (!selected) throw new Error("Figma did not report any available fonts.");
+  const key = `${selected.fontName.family}\u0000${selected.fontName.style}`;
+  if (!loaded.has(key)) {
+    await figma.loadFontAsync(selected.fontName);
+    loaded.add(key);
+  }
+  return selected.fontName;
+}
+
+async function createSourceSceneNode(
+  source: SourceSceneNode,
+  fonts: readonly Font[],
+  loadedFonts: Set<string>,
+): Promise<SceneNode> {
+  if (source.type === "TEXT") {
+    const text = figma.createText();
+    text.name = source.name;
+    text.fontName = await sourceFont(source, fonts, loadedFonts);
+    text.characters = source.characters || " ";
+    text.fontSize = source.fontSize;
+    text.lineHeight = source.lineHeight
+      ? { unit: "PIXELS", value: source.lineHeight }
+      : { unit: "AUTO" };
+    text.letterSpacing = {
+      unit: "PIXELS",
+      value: source.letterSpacing ?? 0,
+    };
+    text.textAlignHorizontal = source.textAlignHorizontal ?? "LEFT";
+    text.fills = sourcePaints(source.fills);
+    text.opacity = source.opacity ?? 1;
+    text.textAutoResize = "NONE";
+    text.resize(Math.max(1, source.width), Math.max(1, source.height));
+    text.x = source.x ?? 0;
+    text.y = source.y ?? 0;
+    return text;
+  }
+
+  if (source.type === "VECTOR") {
+    const vector = figma.createNodeFromSvg(source.svg);
+    vector.name = source.name;
+    vector.resize(Math.max(1, source.width), Math.max(1, source.height));
+    vector.x = source.x ?? 0;
+    vector.y = source.y ?? 0;
+    vector.opacity = source.opacity ?? 1;
+    return vector;
+  }
+
+  if (source.type === "RECTANGLE") {
+    const rectangle = figma.createRectangle();
+    rectangle.name = source.name;
+    rectangle.resize(Math.max(1, source.width), Math.max(1, source.height));
+    rectangle.x = source.x ?? 0;
+    rectangle.y = source.y ?? 0;
+    rectangle.opacity = source.opacity ?? 1;
+    rectangle.fills = sourcePaints(source.fills);
+    rectangle.strokes = sourcePaints(source.strokes);
+    rectangle.strokeWeight = source.strokeWeight ?? 0;
+    rectangle.cornerRadius = source.cornerRadius ?? 0;
+    return rectangle;
+  }
+
+  const frame = figma.createFrame();
+  frame.name = source.name;
+  frame.resizeWithoutConstraints(
+    Math.max(1, source.width),
+    Math.max(1, source.height),
+  );
+  frame.x = source.x ?? 0;
+  frame.y = source.y ?? 0;
+  frame.opacity = source.opacity ?? 1;
+  frame.fills = sourcePaints(source.fills);
+  frame.strokes = sourcePaints(source.strokes);
+  frame.strokeWeight = source.strokeWeight ?? 0;
+  frame.cornerRadius = source.cornerRadius ?? 0;
+  frame.clipsContent = source.clipsContent ?? false;
+  frame.layoutMode = source.layoutMode;
+  if (source.layoutMode !== "NONE") {
+    frame.primaryAxisAlignItems = source.primaryAxisAlignItems ?? "MIN";
+    frame.counterAxisAlignItems = source.counterAxisAlignItems ?? "MIN";
+    frame.paddingTop = source.paddingTop ?? 0;
+    frame.paddingRight = source.paddingRight ?? 0;
+    frame.paddingBottom = source.paddingBottom ?? 0;
+    frame.paddingLeft = source.paddingLeft ?? 0;
+    frame.itemSpacing = source.itemSpacing ?? 0;
+    if ("layoutWrap" in frame) {
+      frame.layoutWrap = source.layoutWrap ?? "NO_WRAP";
+      frame.counterAxisSpacing = source.counterAxisSpacing ?? 0;
+    }
+  }
+  for (const childSource of source.children) {
+    const child = await createSourceSceneNode(
+      childSource,
+      fonts,
+      loadedFonts,
+    );
+    frame.appendChild(child);
+    if (source.layoutMode === "NONE") {
+      child.x = childSource.x ?? 0;
+      child.y = childSource.y ?? 0;
+    }
+  }
+  if (source.layoutMode !== "NONE") {
+    frame.primaryAxisSizingMode = source.primaryAxisSizingMode ?? "FIXED";
+    frame.counterAxisSizingMode = source.counterAxisSizingMode ?? "FIXED";
+  }
+  return frame;
+}
+
+async function materializeSources(
+  manifest: PerfectLibrariesManifest,
+  sources: PerfectLibrariesSources,
+): Promise<string[]> {
+  if (
+    sources.library.id !== manifest.library.id ||
+    sources.library.release !== manifest.library.release
+  ) {
+    throw new Error(
+      `Storybook sources ${sources.library.id}@${sources.library.release} do not match ${manifest.library.id}@${manifest.library.release}.`,
+    );
+  }
+  const expected = new Map(
+    manifest.components.flatMap((component) =>
+      component.variants.map((variant) => [variant.id, variant] as const),
+    ),
+  );
+  const provided = new Map(sources.variants.map((variant) => [variant.id, variant]));
+  for (const [id, variant] of expected) {
+    const source = provided.get(id);
+    if (!source || source.sourceNode !== variant.sourceNode) {
+      throw new Error(
+        `Storybook source bundle is missing ${id} (${variant.sourceNode}).`,
+      );
+    }
+  }
+
+  let container = findManagedSceneNode(
+    manifest.library.id,
+    "source-container",
+    manifest.library.id,
+  );
+  if (container && container.type !== "FRAME") {
+    throw new Error("The managed Storybook source container is not a frame.");
+  }
+  if (!container) {
+    container = figma.createFrame();
+    figma.currentPage.appendChild(container);
+  }
+  const frame = container as FrameNode;
+  for (const child of [...frame.children]) child.remove();
+  frame.name = `${manifest.library.name} · Storybook sources · ${manifest.library.release}`;
+  frame.layoutMode = "VERTICAL";
+  frame.primaryAxisSizingMode = "AUTO";
+  frame.counterAxisSizingMode = "AUTO";
+  frame.itemSpacing = 48;
+  frame.paddingTop = 48;
+  frame.paddingRight = 48;
+  frame.paddingBottom = 48;
+  frame.paddingLeft = 48;
+  frame.fills = [];
+  frame.visible = false;
+  tagManaged(
+    frame as ManagedSceneNode,
+    manifest,
+    "source-container",
+    manifest.library.id,
+  );
+
+  const fonts = await figma.listAvailableFontsAsync();
+  const loadedFonts = new Set<string>();
+  const warnings: string[] = [];
+  for (const component of manifest.components) {
+    for (const variant of component.variants) {
+      const source = provided.get(variant.id);
+      if (!source) continue;
+      const node = await createSourceSceneNode(
+        source.scene,
+        fonts,
+        loadedFonts,
+      );
+      if (node.type !== "FRAME") {
+        node.remove();
+        throw new Error(`Storybook source "${source.sourceNode}" is not a frame.`);
+      }
+      node.name = source.sourceNode;
+      frame.appendChild(node);
+      tagManaged(node as ManagedSceneNode, manifest, "source", variant.id);
+      warnings.push(...(source.warnings ?? []).map((warning) => `${source.sourceNode}: ${warning}`));
+    }
+  }
+  return warnings;
+}
+
 function findSourceNodes(manifest: PerfectLibrariesManifest): SourceLookup {
   const requestedNames = new Set(
     manifest.components.flatMap((component) =>
@@ -516,7 +776,10 @@ function findSourceNodes(manifest: PerfectLibrariesManifest): SourceLookup {
   for (const name of requestedNames) matches.set(name, []);
 
   for (const node of figma.currentPage.findAll()) {
-    if (requestedNames.has(node.name)) {
+    if (
+      requestedNames.has(node.name) &&
+      ["FRAME", "COMPONENT", "INSTANCE"].includes(node.type)
+    ) {
       matches.get(node.name)?.push(node);
     }
   }
@@ -527,17 +790,24 @@ function findSourceNodes(manifest: PerfectLibrariesManifest): SourceLookup {
 
   for (const name of requestedNames) {
     const named = matches.get(name) ?? [];
-    if (named.length === 0) {
+    const managedSources = named.filter(
+      (candidate) =>
+        "getSharedPluginData" in candidate &&
+        candidate.getSharedPluginData(PLUGIN_NAMESPACE, "entityType") ===
+          "source",
+    );
+    const candidates = managedSources.length > 0 ? managedSources : named;
+    if (candidates.length === 0) {
       errors.push(`Source node "${name}" was not found on the current page.`);
       continue;
     }
-    if (named.length > 1) {
+    if (candidates.length > 1) {
       errors.push(
-        `Source node "${name}" is ambiguous; ${named.length} layers have that exact name.`,
+        `Source node "${name}" is ambiguous; ${candidates.length} import frames have that exact name.`,
       );
       continue;
     }
-    const node = named[0];
+    const node = candidates[0];
     if (!["FRAME", "COMPONENT", "INSTANCE"].includes(node.type)) {
       errors.push(
         `Source node "${name}" is ${node.type}; use a Frame, Component, or Instance.`,

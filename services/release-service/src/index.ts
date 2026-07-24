@@ -6,7 +6,7 @@ import {
   type LibraryRelease,
 } from "./model.ts";
 
-const MAX_REQUEST_BYTES = 1_500_000;
+const MAX_REQUEST_BYTES = 12_000_000;
 
 function corsHeaders(cacheControl = "no-store"): HeadersInit {
   return {
@@ -100,6 +100,10 @@ function manifestKey(libraryId: string, version: string): string {
   return `library:${libraryId}:manifest:${version}`;
 }
 
+function sourcesKey(libraryId: string, version: string): string {
+  return `library:${libraryId}:sources:${version}`;
+}
+
 function fileKey(figmaFileKey: string): string {
   return `figma-file:${figmaFileKey}`;
 }
@@ -118,6 +122,17 @@ function immutableManifestUrl(
 ): string {
   return new URL(
     `/v1/libraries/${encodeURIComponent(libraryId)}/releases/${encodeURIComponent(version)}/manifest`,
+    request.url,
+  ).toString();
+}
+
+function immutableSourcesUrl(
+  request: Request,
+  libraryId: string,
+  version: string,
+): string {
+  return new URL(
+    `/v1/libraries/${encodeURIComponent(libraryId)}/releases/${encodeURIComponent(version)}/sources`,
     request.url,
   ).toString();
 }
@@ -178,6 +193,9 @@ async function ingestRelease(request: Request, env: Env): Promise<Response> {
     input.library.id,
     input.release.version,
   );
+  const sourcesUrl = input.sources
+    ? immutableSourcesUrl(request, input.library.id, input.release.version)
+    : undefined;
   const release: LibraryRelease = {
     schemaVersion: 1,
     library: input.library,
@@ -185,6 +203,7 @@ async function ingestRelease(request: Request, env: Env): Promise<Response> {
       ...input.release,
       status: "pending",
       manifestUrl,
+      ...(sourcesUrl ? { sourcesUrl } : {}),
     },
   };
   await Promise.all([
@@ -192,6 +211,12 @@ async function ingestRelease(request: Request, env: Env): Promise<Response> {
       manifestKey(input.library.id, input.release.version),
       JSON.stringify(input.manifest),
     ),
+    input.sources
+      ? env.RELEASES.put(
+          sourcesKey(input.library.id, input.release.version),
+          JSON.stringify(input.sources),
+        )
+      : Promise.resolve(),
     env.RELEASES.put(feedKey(input.library.id), JSON.stringify(release)),
     input.library.figmaFileKey
       ? env.RELEASES.put(fileKey(input.library.figmaFileKey), input.library.id)
@@ -202,6 +227,7 @@ async function ingestRelease(request: Request, env: Env): Promise<Response> {
       ok: true,
       feedUrl: feedUrl(request, input.library.id),
       manifestUrl,
+      ...(sourcesUrl ? { sourcesUrl } : {}),
       release: toPublicReleaseFeed(release),
     },
     201,
@@ -232,6 +258,18 @@ async function manifest(
 ): Promise<Response> {
   const value = await env.RELEASES.get(manifestKey(libraryId, version));
   if (!value) return json({ error: "Manifest not found." }, 404);
+  return new Response(value, {
+    headers: corsHeaders("public, max-age=31536000, immutable"),
+  });
+}
+
+async function sources(
+  libraryId: string,
+  version: string,
+  env: Env,
+): Promise<Response> {
+  const value = await env.RELEASES.get(sourcesKey(libraryId, version));
+  if (!value) return json({ error: "Sources not found." }, 404);
   return new Response(value, {
     headers: corsHeaders("public, max-age=31536000, immutable"),
   });
@@ -343,6 +381,16 @@ export async function handleRequest(
     parts[5] === "manifest"
   ) {
     return manifest(parts[2], parts[4], env);
+  }
+  if (
+    request.method === "GET" &&
+    parts.length === 6 &&
+    parts[0] === "v1" &&
+    parts[1] === "libraries" &&
+    parts[3] === "releases" &&
+    parts[5] === "sources"
+  ) {
+    return sources(parts[2], parts[4], env);
   }
   return json({ error: "Not found." }, 404);
 }
