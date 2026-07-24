@@ -58,15 +58,13 @@ License: MIT
 
 ## Publication checklist
 
-1. Create the permanent plugin listing in Figma.
-2. Put its numeric ID in the Community release build through
-   `FIGMA_PLUGIN_ID`.
-3. Build and import `dist/manifest.json`.
-4. Test with `examples/basic-library.json` in a duplicate design file.
-5. Capture a cover image and three screenshots:
+1. Verify the manifest contains plugin ID `1662573031327668831`.
+2. Build and import `dist/manifest.json`.
+3. Test with `examples/basic-library.json` in a duplicate design file.
+4. Upload `assets/icon.png` and `assets/cover.png`; optionally add screenshots:
    - manifest inspection;
    - variable collections and modes;
    - generated component set with nested instances.
-6. Confirm the listing reports **No network access**.
-7. Add the support URL and MIT source URL.
-8. Submit to Community review.
+5. Confirm the listing reports **No network access**.
+6. Add the support URL and MIT source URL.
+7. Submit to Community review.

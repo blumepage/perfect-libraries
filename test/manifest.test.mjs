@@ -102,6 +102,7 @@ test("the schema URL is stable", () => {
 });
 
 test("the built Figma manifest resolves bundle paths beside itself", () => {
+  assert.equal(pluginManifest.id, "1662573031327668831");
   assert.equal(pluginManifest.main, "code.js");
   assert.equal(pluginManifest.ui, "ui.html");
   assert.deepEqual(pluginManifest.networkAccess, { allowedDomains: ["none"] });

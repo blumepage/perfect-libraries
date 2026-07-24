@@ -50,31 +50,21 @@ pnpm install
 pnpm build
 ```
 
-Figma assigns plugin IDs. For the first local run:
+The generated manifest uses Perfect Libraries' permanent Figma plugin ID,
+`1662573031327668831`. In Figma Desktop, choose **Plugins → Development →
+Import plugin from manifest** and select `dist/manifest.json`.
 
-1. In Figma Desktop, open a design file.
-2. Choose **Plugins → Development → New plugin**.
-3. Choose **Figma Design** and any Custom UI template.
-4. Copy the generated numeric `id` from its `manifest.json`.
-5. Rebuild Perfect Libraries with that development ID:
+Maintainers testing a separately registered development fork can override the
+ID for a build:
 
-   ```bash
-   FIGMA_PLUGIN_ID=1234567890123456789 \
-     pnpm build
-   ```
-
-6. Choose **Plugins → Development → Import plugin from manifest** and select
-   `dist/manifest.json`.
-
-The ID is account-specific and intentionally is not committed before the
-Community listing is registered. A published Community plugin uses its
-permanent listing ID.
+```bash
+FIGMA_PLUGIN_ID=1234567890123456789 pnpm build
+```
 
 Watch during development:
 
 ```bash
-FIGMA_PLUGIN_ID=1234567890123456789 \
-  pnpm dev
+pnpm dev
 ```
 
 Re-run the plugin in Figma after each rebuild.
@@ -248,9 +238,8 @@ pnpm test
 
 ## Publishing to Figma Community
 
-See [`COMMUNITY.md`](COMMUNITY.md). Publishing requires the Figma account owner
-to register the permanent plugin ID and submit the listing. The code and
-manifest are otherwise Community-ready.
+See [`COMMUNITY.md`](COMMUNITY.md). The permanent plugin ID is committed;
+submitting the listing still requires the Figma account owner.
 
 ## License
 
