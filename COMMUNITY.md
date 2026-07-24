@@ -48,6 +48,9 @@ CodeRender, html.to.design, and other HTML importers.
 
 ## Support and source
 
+Community listing:
+`https://www.figma.com/community/plugin/1662573031327668831`
+
 Source repository:
 `https://github.com/blumepage/perfect-libraries`
 

@@ -1,5 +1,7 @@
 # Perfect Libraries
 
+[Open Perfect Libraries in the Figma Community](https://www.figma.com/community/plugin/1662573031327668831)
+
 Perfect Libraries is a free, open-source Figma plugin for turning imported UI frames
 into a maintainable design-system library.
 
