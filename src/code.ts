@@ -33,6 +33,7 @@ import {
   isSingleLineSourceText,
   selectSourceFontName,
 } from "./source-text";
+import { shouldWarnMissingAutoLayout } from "./source-audit";
 
 declare const __html__: string;
 
@@ -997,13 +998,16 @@ function auditSourceAutoLayout(nodes: Map<string, SceneNode>): string[] {
   for (const [sourceName, node] of nodes) {
     const offenders = [node, ...("findAll" in node ? node.findAll() : [])].filter(
       (candidate): candidate is FrameNode | ComponentNode | InstanceNode =>
-        ["FRAME", "COMPONENT", "INSTANCE"].includes(candidate.type) &&
-        "children" in candidate &&
-        candidate.children.length > 1 &&
-        "layoutMode" in candidate &&
-        candidate.layoutMode === "NONE" &&
-        candidate.getSharedPluginData(PLUGIN_NAMESPACE, "sourceRole") !==
-          "vector-artwork",
+        shouldWarnMissingAutoLayout({
+          type: candidate.type,
+          childCount: "children" in candidate ? candidate.children.length : 0,
+          layoutMode:
+            "layoutMode" in candidate ? candidate.layoutMode : undefined,
+          sourceRole: candidate.getSharedPluginData(
+            PLUGIN_NAMESPACE,
+            "sourceRole",
+          ),
+        }),
     );
     if (offenders.length > 0) {
       warnings.push(
@@ -1854,18 +1858,16 @@ function replaceWithInstance(
   instance.name = marker.name;
   parent.insertChild(index, instance);
   marker.remove();
+  instance.resizeWithoutConstraints(width, height);
 
   if ("layoutMode" in parent && parent.layoutMode !== "NONE") {
     try {
       instance.layoutSizingHorizontal = horizontal;
       instance.layoutSizingVertical = vertical;
-    } catch {
-      instance.resizeWithoutConstraints(width, height);
-    }
+    } catch {}
   } else {
     instance.x = x;
     instance.y = y;
-    instance.resizeWithoutConstraints(width, height);
   }
   instance.setSharedPluginData(
     PLUGIN_NAMESPACE,
@@ -1997,11 +1999,16 @@ function auditManagedComponents(nodes: ManagedSceneNode[]): string[] {
       "findAll" in node ? [node, ...node.findAll()] : [node];
     const withoutLayout = descendants.filter(
       (candidate) =>
-        ["FRAME", "COMPONENT", "INSTANCE"].includes(candidate.type) &&
-        "children" in candidate &&
-        candidate.children.length > 1 &&
-        "layoutMode" in candidate &&
-        candidate.layoutMode === "NONE",
+        shouldWarnMissingAutoLayout({
+          type: candidate.type,
+          childCount: "children" in candidate ? candidate.children.length : 0,
+          layoutMode:
+            "layoutMode" in candidate ? candidate.layoutMode : undefined,
+          sourceRole: candidate.getSharedPluginData(
+            PLUGIN_NAMESPACE,
+            "sourceRole",
+          ),
+        }),
     );
     if (withoutLayout.length > 0) {
       warnings.push(

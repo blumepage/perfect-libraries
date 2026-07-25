@@ -71,6 +71,14 @@ const sourceTextOptions = {
   platform: "node",
 };
 
+const sourceAuditOptions = {
+  ...common,
+  entryPoints: [new URL("src/source-audit.ts", root).pathname],
+  outfile: new URL("source-audit.mjs", dist).pathname,
+  format: "esm",
+  platform: "node",
+};
+
 async function buildUi() {
   const result = await build({
     ...common,
@@ -123,6 +131,7 @@ if (watch) {
     build(sourceContractOptions),
     build(serialOperationQueueOptions),
     build(sourceTextOptions),
+    build(sourceAuditOptions),
     buildUi(),
     buildManifest(),
   ]);
