@@ -13,6 +13,7 @@ import {
 } from "./manifest";
 import {
   hasPendingRelease,
+  normalizeReleaseSourceUrl,
   parseReleaseFeed,
   validateReleaseManifest,
   type ResolvedRelease,
@@ -134,7 +135,7 @@ figma.ui.onmessage = async (message: UiMessage) => {
   }
 
   if (message.type === "save-feed") {
-    const normalized = normalizeFeedUrl(message.url);
+    const normalized = normalizeReleaseSourceUrl(message.url);
     if (!normalized) {
       postReleaseState({
         configuredUrl: message.url.trim(),
@@ -186,24 +187,6 @@ async function initializeReleaseFeed(): Promise<void> {
   configuredFeedUrl = typeof stored === "string" ? stored : "";
   postReleaseState({ configuredUrl: configuredFeedUrl, loading: false });
   if (configuredFeedUrl) await checkReleaseFeed();
-}
-
-function normalizeFeedUrl(value: string): string | undefined {
-  try {
-    const url = new URL(value.trim());
-    const localDevelopmentHost = ["localhost", "127.0.0.1"].includes(
-      url.hostname,
-    );
-    if (
-      url.protocol !== "https:" &&
-      !(url.protocol === "http:" && localDevelopmentHost)
-    ) {
-      return undefined;
-    }
-    return url.toString();
-  } catch {
-    return undefined;
-  }
 }
 
 function postReleaseState(
@@ -320,37 +303,49 @@ function recordAppliedRelease(manifest: PerfectLibrariesManifest): void {
 }
 
 async function fetchJson(url: string): Promise<unknown> {
-  const normalized = normalizeFeedUrl(url);
+  const normalized = normalizeReleaseSourceUrl(url);
   if (!normalized) {
     throw new Error("Release sources must use HTTPS.");
   }
-  const controller = new AbortController();
-  const timeout = setTimeout(() => controller.abort(), 15_000);
-  let response: Response;
+
+  let timeout: ReturnType<typeof setTimeout> | undefined;
+  const timeoutPromise = new Promise<never>((_, reject) => {
+    timeout = setTimeout(
+      () => reject(new Error("The release source did not respond within 15 seconds.")),
+      15_000,
+    );
+  });
+
+  let response: Awaited<ReturnType<typeof fetch>>;
   try {
-    response = await fetch(normalized, {
-      method: "GET",
-      headers: { Accept: "application/json" },
-      signal: controller.signal,
-    });
-  } catch (error) {
-    if (error instanceof Error && error.name === "AbortError") {
-      throw new Error("The release source did not respond within 15 seconds.");
-    }
-    throw error;
+    response = await Promise.race([
+      fetch(normalized, {
+        method: "GET",
+        headers: { Accept: "application/json" },
+      }),
+      timeoutPromise,
+    ]);
   } finally {
-    clearTimeout(timeout);
+    if (timeout !== undefined) clearTimeout(timeout);
   }
   if (!response.ok) {
     throw new Error(`Request failed with ${response.status} ${response.statusText}.`);
   }
-  const declaredLength = Number(response.headers.get("content-length") ?? "0");
+
+  const figmaResponse = response as typeof response & {
+    headersObject?: Record<string, string>;
+  };
+  const declaredLength = Number(
+    figmaResponse.headersObject?.["content-length"] ??
+      response.headers?.get?.("content-length") ??
+      "0",
+  );
   if (declaredLength > MAX_FEED_BYTES) {
-    throw new Error("The response is larger than the 5 MB safety limit.");
+    throw new Error("The response is larger than the 12 MB safety limit.");
   }
   const source = await response.text();
   if (source.length > MAX_FEED_BYTES) {
-    throw new Error("The response is larger than the 5 MB safety limit.");
+    throw new Error("The response is larger than the 12 MB safety limit.");
   }
   try {
     return JSON.parse(source);

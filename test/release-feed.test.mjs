@@ -3,6 +3,7 @@ import { readFile } from "node:fs/promises";
 import test from "node:test";
 import {
   hasPendingRelease,
+  normalizeReleaseSourceUrl,
   parseReleaseFeed,
   validateReleaseManifest,
 } from "../dist/release-feed.mjs";
@@ -26,6 +27,29 @@ test("release feeds resolve relative manifest URLs", () => {
     result.release?.manifestUrl,
     "https://raw.githubusercontent.com/example/design-system/main/examples/basic-library.json",
   );
+});
+
+test("release URLs normalize without browser APIs in the Figma sandbox", () => {
+  const originalUrl = globalThis.URL;
+  try {
+    globalThis.URL = undefined;
+    assert.equal(
+      normalizeReleaseSourceUrl(
+        " https://ui-libraries.blume-page.com/v1/libraries/page.blume.ui/releases/latest ",
+      ),
+      "https://ui-libraries.blume-page.com/v1/libraries/page.blume.ui/releases/latest",
+    );
+    assert.equal(
+      normalizeReleaseSourceUrl("http://localhost:8787/v1/releases/latest"),
+      "http://localhost:8787/v1/releases/latest",
+    );
+    assert.equal(
+      normalizeReleaseSourceUrl("http://example.com/releases/latest"),
+      undefined,
+    );
+  } finally {
+    globalThis.URL = originalUrl;
+  }
 });
 
 test("release feeds reject unknown publication states", () => {

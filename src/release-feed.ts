@@ -47,6 +47,15 @@ export interface ReleaseFeedResult {
   release?: ResolvedRelease;
 }
 
+interface AbsoluteHttpUrl {
+  protocol: "http:" | "https:";
+  authority: string;
+  hostname: string;
+  pathname: string;
+  search: string;
+  hash: string;
+}
+
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value);
 }
@@ -59,14 +68,152 @@ function optionalString(value: unknown): value is string | undefined {
   return value === undefined || typeof value === "string";
 }
 
-function resolveHttpUrl(value: string, baseUrl: string): string | undefined {
-  try {
-    const resolved = new URL(value, baseUrl);
-    if (!["http:", "https:"].includes(resolved.protocol)) return undefined;
-    return resolved.toString();
-  } catch {
+function parseAbsoluteHttpUrl(value: string): AbsoluteHttpUrl | undefined {
+  const trimmed = value.trim();
+  const schemeEnd = trimmed.indexOf("://");
+  if (schemeEnd < 1) return undefined;
+
+  const protocol = `${trimmed.slice(0, schemeEnd).toLowerCase()}:`;
+  if (protocol !== "http:" && protocol !== "https:") return undefined;
+
+  const remainder = trimmed.slice(schemeEnd + 3);
+  const authorityEndCandidates = [
+    remainder.indexOf("/"),
+    remainder.indexOf("?"),
+    remainder.indexOf("#"),
+  ].filter((index) => index >= 0);
+  const authorityEnd =
+    authorityEndCandidates.length > 0
+      ? Math.min(...authorityEndCandidates)
+      : remainder.length;
+  const authority = remainder.slice(0, authorityEnd);
+  if (
+    !authority ||
+    authority.includes("@") ||
+    /[\s\\]/.test(authority)
+  ) {
     return undefined;
   }
+
+  let hostname = authority;
+  let port = "";
+  if (authority.startsWith("[")) {
+    const closingBracket = authority.indexOf("]");
+    if (closingBracket < 2) return undefined;
+    hostname = authority.slice(0, closingBracket + 1);
+    const portSuffix = authority.slice(closingBracket + 1);
+    if (portSuffix) {
+      if (!/^:\d+$/.test(portSuffix)) return undefined;
+      port = portSuffix.slice(1);
+    }
+  } else {
+    const lastColon = authority.lastIndexOf(":");
+    if (lastColon >= 0) {
+      if (authority.indexOf(":") !== lastColon) return undefined;
+      hostname = authority.slice(0, lastColon);
+      port = authority.slice(lastColon + 1);
+      if (!port || !/^\d+$/.test(port)) return undefined;
+    }
+  }
+  if (!hostname || /[\s/?#]/.test(hostname)) return undefined;
+  if (port && (Number(port) < 1 || Number(port) > 65_535)) return undefined;
+
+  const suffix = remainder.slice(authorityEnd);
+  const hashIndex = suffix.indexOf("#");
+  const hash = hashIndex >= 0 ? suffix.slice(hashIndex) : "";
+  const withoutHash = hashIndex >= 0 ? suffix.slice(0, hashIndex) : suffix;
+  const searchIndex = withoutHash.indexOf("?");
+  const search = searchIndex >= 0 ? withoutHash.slice(searchIndex) : "";
+  const pathname =
+    (searchIndex >= 0 ? withoutHash.slice(0, searchIndex) : withoutHash) || "/";
+  if (!pathname.startsWith("/") || /[\s\\]/.test(pathname + search + hash)) {
+    return undefined;
+  }
+
+  return {
+    protocol,
+    authority,
+    hostname: hostname.toLowerCase(),
+    pathname,
+    search,
+    hash,
+  };
+}
+
+function serializeHttpUrl(url: AbsoluteHttpUrl): string {
+  return `${url.protocol}//${url.authority}${url.pathname}${url.search}${url.hash}`;
+}
+
+function normalizePath(pathname: string): string {
+  const trailingSlash = pathname.endsWith("/");
+  const segments: string[] = [];
+  for (const segment of pathname.split("/")) {
+    if (!segment || segment === ".") continue;
+    if (segment === "..") {
+      segments.pop();
+      continue;
+    }
+    segments.push(segment);
+  }
+  const normalized = `/${segments.join("/")}`;
+  return trailingSlash && normalized !== "/" ? `${normalized}/` : normalized;
+}
+
+export function normalizeReleaseSourceUrl(value: string): string | undefined {
+  const parsed = parseAbsoluteHttpUrl(value);
+  if (!parsed) return undefined;
+  const localDevelopmentHost = ["localhost", "127.0.0.1"].includes(
+    parsed.hostname,
+  );
+  if (
+    parsed.protocol !== "https:" &&
+    !(parsed.protocol === "http:" && localDevelopmentHost)
+  ) {
+    return undefined;
+  }
+  return serializeHttpUrl(parsed);
+}
+
+function resolveHttpUrl(value: string, baseUrl: string): string | undefined {
+  const trimmed = value.trim();
+  const absolute = parseAbsoluteHttpUrl(trimmed);
+  if (absolute) return serializeHttpUrl(absolute);
+
+  const base = parseAbsoluteHttpUrl(baseUrl);
+  if (!base || !trimmed || /[\s\\]/.test(trimmed)) return undefined;
+  if (trimmed.startsWith("//")) {
+    const protocolRelative = parseAbsoluteHttpUrl(
+      `${base.protocol}${trimmed}`,
+    );
+    return protocolRelative
+      ? serializeHttpUrl(protocolRelative)
+      : undefined;
+  }
+
+  const hashIndex = trimmed.indexOf("#");
+  const hash = hashIndex >= 0 ? trimmed.slice(hashIndex) : "";
+  const withoutHash = hashIndex >= 0 ? trimmed.slice(0, hashIndex) : trimmed;
+  const searchIndex = withoutHash.indexOf("?");
+  const search = searchIndex >= 0 ? withoutHash.slice(searchIndex) : "";
+  const relativePath =
+    searchIndex >= 0 ? withoutHash.slice(0, searchIndex) : withoutHash;
+
+  let pathname: string;
+  if (!relativePath) {
+    pathname = base.pathname;
+  } else if (relativePath.startsWith("/")) {
+    pathname = normalizePath(relativePath);
+  } else {
+    const directory = base.pathname.slice(
+      0,
+      base.pathname.lastIndexOf("/") + 1,
+    );
+    pathname = normalizePath(`${directory}${relativePath}`);
+  }
+
+  return `${base.protocol}//${base.authority}${pathname}${
+    search || (!relativePath && !withoutHash ? base.search : "")
+  }${hash}`;
 }
 
 function directManifestResult(input: unknown): ReleaseFeedResult | undefined {
