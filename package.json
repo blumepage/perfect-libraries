@@ -24,7 +24,7 @@
     "service:dev": "pnpm --filter @perfect-libraries/release-service dev",
     "service:test": "pnpm --filter @perfect-libraries/release-service test",
     "service:typecheck": "pnpm --filter @perfect-libraries/release-service typecheck",
-    "test": "pnpm build && node --test test/*.test.mjs",
+    "test": "pnpm build && node --test test/*.test.mjs && pnpm --filter @perfect-libraries/storybook-exporter test",
     "typecheck": "tsc --noEmit"
   },
   "devDependencies": {

@@ -11,6 +11,9 @@
     ".": "./src/index.mjs",
     "./browser": "./src/browser-capture.js"
   },
+  "scripts": {
+    "test": "node --test test/*.test.mjs"
+  },
   "files": [
     "src",
     "README.md"

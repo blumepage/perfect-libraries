@@ -102,7 +102,10 @@ export async function exportStorybookSources(options) {
         throw new Error(`Storybook did not produce source "${variant.sourceNode}".`);
       }
       const blocking = captured.warnings.filter((warning) =>
-        warning.includes("cannot become Auto Layout"),
+        warning.includes("cannot become Auto Layout") ||
+        warning.includes("cannot become an editable Figma source") ||
+        warning.includes("unsupported background image") ||
+        warning.includes("unsupported box shadow"),
       );
       if (blocking.length) {
         throw new Error(`${variant.sourceNode}: ${blocking.join(" ")}`);

@@ -40,29 +40,95 @@
   },
   "$defs": {
     "paint": {
-      "type": "object",
-      "additionalProperties": false,
-      "required": ["type", "color"],
-      "properties": {
-        "type": { "const": "SOLID" },
-        "opacity": { "type": "number", "minimum": 0, "maximum": 1 },
-        "color": {
+      "oneOf": [
+        {
           "type": "object",
           "additionalProperties": false,
-          "required": ["r", "g", "b"],
+          "required": ["type", "color"],
           "properties": {
-            "r": { "type": "number", "minimum": 0, "maximum": 1 },
-            "g": { "type": "number", "minimum": 0, "maximum": 1 },
-            "b": { "type": "number", "minimum": 0, "maximum": 1 }
+            "type": { "const": "SOLID" },
+            "opacity": { "type": "number", "minimum": 0, "maximum": 1 },
+            "color": { "$ref": "#/$defs/color" }
+          }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["type", "gradientTransform", "gradientStops"],
+          "properties": {
+            "type": { "const": "GRADIENT_LINEAR" },
+            "opacity": { "type": "number", "minimum": 0, "maximum": 1 },
+            "gradientTransform": { "$ref": "#/$defs/transform" },
+            "gradientStops": {
+              "type": "array",
+              "minItems": 2,
+              "items": {
+                "type": "object",
+                "additionalProperties": false,
+                "required": ["position", "color"],
+                "properties": {
+                  "position": { "type": "number", "minimum": 0, "maximum": 1 },
+                  "color": { "$ref": "#/$defs/rgba" }
+                }
+              }
+            }
           }
         }
+      ]
+    },
+    "color": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["r", "g", "b"],
+      "properties": {
+        "r": { "type": "number", "minimum": 0, "maximum": 1 },
+        "g": { "type": "number", "minimum": 0, "maximum": 1 },
+        "b": { "type": "number", "minimum": 0, "maximum": 1 },
+        "a": { "type": "number", "minimum": 0, "maximum": 1 }
+      }
+    },
+    "rgba": {
+      "allOf": [
+        { "$ref": "#/$defs/color" },
+        { "required": ["a"] }
+      ]
+    },
+    "transform": {
+      "type": "array",
+      "minItems": 2,
+      "maxItems": 2,
+      "items": {
+        "type": "array",
+        "minItems": 3,
+        "maxItems": 3,
+        "items": { "type": "number" }
+      }
+    },
+    "effect": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["type", "color", "offset", "radius"],
+      "properties": {
+        "type": { "enum": ["DROP_SHADOW", "INNER_SHADOW"] },
+        "color": { "$ref": "#/$defs/rgba" },
+        "offset": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["x", "y"],
+          "properties": {
+            "x": { "type": "number" },
+            "y": { "type": "number" }
+          }
+        },
+        "radius": { "type": "number", "minimum": 0 },
+        "spread": { "type": "number" }
       }
     },
     "base": {
       "type": "object",
       "required": ["type", "name", "width", "height"],
       "properties": {
-        "type": { "enum": ["FRAME", "TEXT", "RECTANGLE", "VECTOR"] },
+        "type": { "enum": ["FRAME", "TEXT", "RECTANGLE", "IMAGE", "VECTOR"] },
         "name": { "type": "string", "minLength": 1 },
         "width": { "type": "number", "exclusiveMinimum": 0 },
         "height": { "type": "number", "exclusiveMinimum": 0 },
@@ -94,14 +160,56 @@
                 "itemSpacing": { "type": "number" },
                 "counterAxisSpacing": { "type": "number" },
                 "cornerRadius": { "type": "number" },
+                "topLeftRadius": { "type": "number" },
+                "topRightRadius": { "type": "number" },
+                "bottomRightRadius": { "type": "number" },
+                "bottomLeftRadius": { "type": "number" },
                 "fills": { "type": "array", "items": { "$ref": "#/$defs/paint" } },
                 "strokes": { "type": "array", "items": { "$ref": "#/$defs/paint" } },
                 "strokeWeight": { "type": "number" },
+                "strokeTopWeight": { "type": "number" },
+                "strokeRightWeight": { "type": "number" },
+                "strokeBottomWeight": { "type": "number" },
+                "strokeLeftWeight": { "type": "number" },
+                "strokeAlign": { "enum": ["INSIDE", "CENTER", "OUTSIDE"] },
+                "effects": { "type": "array", "items": { "$ref": "#/$defs/effect" } },
                 "clipsContent": { "type": "boolean" },
                 "children": {
                   "type": "array",
                   "items": { "$ref": "#/$defs/sceneNode" }
                 }
+              }
+            }
+          ]
+        },
+        {
+          "allOf": [
+            { "$ref": "#/$defs/base" },
+            {
+              "type": "object",
+              "required": ["data", "mimeType"],
+              "properties": {
+                "type": { "const": "IMAGE" },
+                "data": {
+                  "type": "string",
+                  "minLength": 1,
+                  "pattern": "^[A-Za-z0-9+/]+={0,2}$"
+                },
+                "mimeType": { "enum": ["image/png", "image/jpeg", "image/gif"] },
+                "scaleMode": { "enum": ["FILL", "FIT"] },
+                "cornerRadius": { "type": "number" },
+                "topLeftRadius": { "type": "number" },
+                "topRightRadius": { "type": "number" },
+                "bottomRightRadius": { "type": "number" },
+                "bottomLeftRadius": { "type": "number" },
+                "strokes": { "type": "array", "items": { "$ref": "#/$defs/paint" } },
+                "strokeWeight": { "type": "number" },
+                "strokeTopWeight": { "type": "number" },
+                "strokeRightWeight": { "type": "number" },
+                "strokeBottomWeight": { "type": "number" },
+                "strokeLeftWeight": { "type": "number" },
+                "strokeAlign": { "enum": ["INSIDE", "CENTER", "OUTSIDE"] },
+                "effects": { "type": "array", "items": { "$ref": "#/$defs/effect" } }
               }
             }
           ]
@@ -135,9 +243,19 @@
               "properties": {
                 "type": { "const": "RECTANGLE" },
                 "cornerRadius": { "type": "number" },
+                "topLeftRadius": { "type": "number" },
+                "topRightRadius": { "type": "number" },
+                "bottomRightRadius": { "type": "number" },
+                "bottomLeftRadius": { "type": "number" },
                 "fills": { "type": "array", "items": { "$ref": "#/$defs/paint" } },
                 "strokes": { "type": "array", "items": { "$ref": "#/$defs/paint" } },
-                "strokeWeight": { "type": "number" }
+                "strokeWeight": { "type": "number" },
+                "strokeTopWeight": { "type": "number" },
+                "strokeRightWeight": { "type": "number" },
+                "strokeBottomWeight": { "type": "number" },
+                "strokeLeftWeight": { "type": "number" },
+                "strokeAlign": { "enum": ["INSIDE", "CENTER", "OUTSIDE"] },
+                "effects": { "type": "array", "items": { "$ref": "#/$defs/effect" } }
               }
             }
           ]

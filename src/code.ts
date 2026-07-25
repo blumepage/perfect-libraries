@@ -21,11 +21,13 @@ import {
 import {
   validateSources,
   type PerfectLibrariesSources,
+  type SourceEffect,
   type SourceFrameNode,
   type SourcePaint,
   type SourceSceneNode,
   type SourceTextNode,
 } from "./sources";
+import { validateSourceContract } from "./source-contract";
 
 declare const __html__: string;
 
@@ -71,6 +73,12 @@ interface SourceLookup {
   nodes: Map<string, SceneNode>;
   warnings: string[];
   errors: string[];
+}
+
+interface ResolvedSourceLookup {
+  lookup: SourceLookup;
+  warnings: string[];
+  sourceErrors: string[];
 }
 
 interface ComponentRuntime {
@@ -367,20 +375,25 @@ async function inspect(input: unknown): Promise<Report & { type: "report" }> {
     };
   }
 
-  const sourceLookup = findSourceNodes(validation.manifest);
+  const resolvedSources = await resolveSourceLookup(validation.manifest);
+  const sourceLookup = resolvedSources.lookup;
   const managed = findManagedSceneNodes(validation.manifest.library.id);
   const autoLayoutWarnings = auditSourceAutoLayout(sourceLookup.nodes);
 
   return {
     type: "report",
-    ok: sourceLookup.errors.length === 0,
+    ok:
+      resolvedSources.sourceErrors.length === 0 &&
+      sourceLookup.errors.length === 0,
     title:
+      resolvedSources.sourceErrors.length === 0 &&
       sourceLookup.errors.length === 0
         ? "Ready to forge"
         : "Source frames need attention",
-    errors: sourceLookup.errors,
+    errors: [...resolvedSources.sourceErrors, ...sourceLookup.errors],
     warnings: [
       ...validation.warnings,
+      ...resolvedSources.warnings,
       ...sourceLookup.warnings,
       ...autoLayoutWarnings,
     ],
@@ -408,28 +421,20 @@ async function apply(input: unknown): Promise<Report & { type: "report" }> {
   }
 
   const manifest = validation.manifest;
-  let sourceLookup = findSourceNodes(manifest);
-  const sourceWarnings: string[] = [];
-  if (
-    sourceLookup.errors.length > 0 &&
-    cachedRelease?.libraryId === manifest.library.id &&
-    cachedRelease.release === manifest.library.release &&
-    cachedRelease.sourcesUrl
-  ) {
-    const input = await fetchJson(cachedRelease.sourcesUrl);
-    const sources = validateSources(input);
-    if (!sources.ok || !sources.sources) {
-      return {
-        type: "report",
-        ok: false,
-        title: "Storybook source export needs attention",
-        errors: sources.errors,
-        warnings: validation.warnings,
-        details: ["The release manifest is valid, but its rendered Storybook source bundle is not."],
-      };
-    }
-    sourceWarnings.push(...await materializeSources(manifest, sources.sources));
-    sourceLookup = findSourceNodes(manifest);
+  const resolvedSources = await resolveSourceLookup(manifest);
+  const sourceLookup = resolvedSources.lookup;
+  const sourceWarnings = resolvedSources.warnings;
+  if (resolvedSources.sourceErrors.length > 0) {
+    return {
+      type: "report",
+      ok: false,
+      title: "Storybook source export needs attention",
+      errors: resolvedSources.sourceErrors,
+      warnings: validation.warnings,
+      details: [
+        "The release manifest is valid, but its rendered Storybook source bundle is not.",
+      ],
+    };
   }
   if (sourceLookup.errors.length > 0) {
     return {
@@ -533,12 +538,115 @@ async function apply(input: unknown): Promise<Report & { type: "report" }> {
   }
 }
 
+async function resolveSourceLookup(
+  manifest: PerfectLibrariesManifest,
+): Promise<ResolvedSourceLookup> {
+  const release = cachedRelease;
+  const matchesCachedRelease =
+    release?.libraryId === manifest.library.id &&
+    release.release === manifest.library.release;
+  if (!matchesCachedRelease || !release?.sourcesUrl) {
+    return {
+      lookup: findSourceNodes(manifest),
+      warnings: [],
+      sourceErrors: [],
+    };
+  }
+
+  try {
+    const input = await fetchJson(release.sourcesUrl);
+    const sources = validateSources(input);
+    if (!sources.ok || !sources.sources) {
+      return {
+        lookup: { nodes: new Map(), warnings: [], errors: [] },
+        warnings: [],
+        sourceErrors: sources.errors,
+      };
+    }
+    const contract = validateSourceContract(manifest, sources.sources);
+    if (!contract.ok) {
+      return {
+        lookup: { nodes: new Map(), warnings: [], errors: [] },
+        warnings: [],
+        sourceErrors: contract.errors,
+      };
+    }
+    const warnings = await materializeSources(manifest, sources.sources);
+    return {
+      lookup: findSourceNodes(manifest),
+      warnings,
+      sourceErrors: [],
+    };
+  } catch (error) {
+    return {
+      lookup: { nodes: new Map(), warnings: [], errors: [] },
+      warnings: [],
+      sourceErrors: [
+        error instanceof Error
+          ? error.message
+          : "The Storybook source bundle could not be loaded.",
+      ],
+    };
+  }
+}
+
 function sourcePaints(paints: SourcePaint[] | undefined): Paint[] {
-  return (paints ?? []).map((paint) => ({
-    type: "SOLID",
-    color: paint.color,
-    opacity: paint.opacity ?? 1,
+  return (paints ?? []).map((paint): Paint => {
+    if (paint.type === "GRADIENT_LINEAR") {
+      return {
+        type: "GRADIENT_LINEAR",
+        gradientTransform: paint.gradientTransform,
+        gradientStops: paint.gradientStops.map((stop) => ({
+          position: stop.position,
+          color: stop.color,
+        })),
+        opacity: paint.opacity ?? 1,
+      };
+    }
+    return {
+      type: "SOLID",
+      color: paint.color,
+      opacity: paint.opacity ?? paint.color.a ?? 1,
+    };
+  });
+}
+
+function sourceEffects(effects: SourceEffect[] | undefined): Effect[] {
+  return (effects ?? []).map((effect) => ({
+    type: effect.type,
+    color: effect.color,
+    offset: effect.offset,
+    radius: effect.radius,
+    ...(effect.spread !== undefined ? { spread: effect.spread } : {}),
+    visible: true,
+    blendMode: "NORMAL",
   }));
+}
+
+function applySourceGeometry(
+  node: FrameNode | RectangleNode,
+  source:
+    | SourceFrameNode
+    | Extract<SourceSceneNode, { type: "RECTANGLE" | "IMAGE" }>,
+): void {
+  if (source.topLeftRadius !== undefined) {
+    node.topLeftRadius = source.topLeftRadius;
+    node.topRightRadius = source.topRightRadius ?? source.topLeftRadius;
+    node.bottomRightRadius = source.bottomRightRadius ?? source.topLeftRadius;
+    node.bottomLeftRadius = source.bottomLeftRadius ?? source.topLeftRadius;
+  } else {
+    node.cornerRadius = source.cornerRadius ?? 0;
+  }
+  node.strokeAlign = source.strokeAlign ?? "CENTER";
+  if (source.strokeTopWeight !== undefined) {
+    node.strokeTopWeight = source.strokeTopWeight;
+    node.strokeRightWeight = source.strokeRightWeight ?? source.strokeTopWeight;
+    node.strokeBottomWeight = source.strokeBottomWeight ?? source.strokeTopWeight;
+    node.strokeLeftWeight = source.strokeLeftWeight ?? source.strokeTopWeight;
+  } else {
+    node.strokeWeight = source.strokeWeight ?? 0;
+  }
+  node.effects = sourceEffects(source.effects);
 }
 
 function normalizedFontName(value: string): string {
@@ -616,6 +724,26 @@ async function createSourceSceneNode(
     return vector;
   }
 
+  if (source.type === "IMAGE") {
+    const rectangle = figma.createRectangle();
+    const image = figma.createImage(figma.base64Decode(source.data));
+    rectangle.name = source.name;
+    rectangle.resize(Math.max(1, source.width), Math.max(1, source.height));
+    rectangle.x = source.x ?? 0;
+    rectangle.y = source.y ?? 0;
+    rectangle.opacity = source.opacity ?? 1;
+    rectangle.fills = [
+      {
+        type: "IMAGE",
+        imageHash: image.hash,
+        scaleMode: source.scaleMode ?? "FILL",
+      },
+    ];
+    rectangle.strokes = sourcePaints(source.strokes);
+    applySourceGeometry(rectangle, source);
+    return rectangle;
+  }
+
   if (source.type === "RECTANGLE") {
     const rectangle = figma.createRectangle();
     rectangle.name = source.name;
@@ -625,8 +753,7 @@ async function createSourceSceneNode(
     rectangle.opacity = source.opacity ?? 1;
     rectangle.fills = sourcePaints(source.fills);
     rectangle.strokes = sourcePaints(source.strokes);
-    rectangle.strokeWeight = source.strokeWeight ?? 0;
-    rectangle.cornerRadius = source.cornerRadius ?? 0;
+    applySourceGeometry(rectangle, source);
     return rectangle;
   }
 
@@ -641,8 +768,7 @@ async function createSourceSceneNode(
   frame.opacity = source.opacity ?? 1;
   frame.fills = sourcePaints(source.fills);
   frame.strokes = sourcePaints(source.strokes);
-  frame.strokeWeight = source.strokeWeight ?? 0;
-  frame.cornerRadius = source.cornerRadius ?? 0;
+  applySourceGeometry(frame, source);
   frame.clipsContent = source.clipsContent ?? false;
   frame.layoutMode = source.layoutMode;
   if (source.layoutMode !== "NONE") {
@@ -809,7 +935,14 @@ function findSourceNodes(manifest: PerfectLibrariesManifest): SourceLookup {
       );
       continue;
     }
-    if (isManaged(node, manifest.library.id)) {
+    const managedEntityType =
+      "getSharedPluginData" in node
+        ? node.getSharedPluginData(PLUGIN_NAMESPACE, "entityType")
+        : "";
+    if (
+      isManaged(node, manifest.library.id) &&
+      managedEntityType !== "source"
+    ) {
       errors.push(
         `Source node "${name}" is already managed output. Keep imported source frames separate from the generated library.`,
       );

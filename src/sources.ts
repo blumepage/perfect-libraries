@@ -5,12 +5,35 @@ export interface SourceColor {
   r: number;
   g: number;
   b: number;
+  a?: number;
 }
 
-export interface SourcePaint {
+export interface SourceSolidPaint {
   type: "SOLID";
   color: SourceColor;
   opacity?: number;
+}
+
+export interface SourceGradientStop {
+  position: number;
+  color: SourceColor & { a: number };
+}
+
+export interface SourceGradientPaint {
+  type: "GRADIENT_LINEAR";
+  gradientTransform: [[number, number, number], [number, number, number]];
+  gradientStops: SourceGradientStop[];
+  opacity?: number;
+}
+
+export type SourcePaint = SourceSolidPaint | SourceGradientPaint;
+
+export interface SourceEffect {
+  type: "DROP_SHADOW" | "INNER_SHADOW";
+  color: SourceColor & { a: number };
+  offset: { x: number; y: number };
+  radius: number;
+  spread?: number;
 }
 
 export interface SourceBaseNode {
@@ -37,9 +60,19 @@ export interface SourceFrameNode extends SourceBaseNode {
   itemSpacing?: number;
   counterAxisSpacing?: number;
   cornerRadius?: number;
+  topLeftRadius?: number;
+  topRightRadius?: number;
+  bottomRightRadius?: number;
+  bottomLeftRadius?: number;
   fills?: SourcePaint[];
   strokes?: SourcePaint[];
   strokeWeight?: number;
+  strokeTopWeight?: number;
+  strokeRightWeight?: number;
+  strokeBottomWeight?: number;
+  strokeLeftWeight?: number;
+  strokeAlign?: "INSIDE" | "CENTER" | "OUTSIDE";
+  effects?: SourceEffect[];
   clipsContent?: boolean;
   children: SourceSceneNode[];
 }
@@ -60,9 +93,39 @@ export interface SourceTextNode extends SourceBaseNode {
 export interface SourceRectangleNode extends SourceBaseNode {
   type: "RECTANGLE";
   cornerRadius?: number;
+  topLeftRadius?: number;
+  topRightRadius?: number;
+  bottomRightRadius?: number;
+  bottomLeftRadius?: number;
   fills?: SourcePaint[];
   strokes?: SourcePaint[];
   strokeWeight?: number;
+  strokeTopWeight?: number;
+  strokeRightWeight?: number;
+  strokeBottomWeight?: number;
+  strokeLeftWeight?: number;
+  strokeAlign?: "INSIDE" | "CENTER" | "OUTSIDE";
+  effects?: SourceEffect[];
+}
+
+export interface SourceImageNode extends SourceBaseNode {
+  type: "IMAGE";
+  data: string;
+  mimeType: "image/png" | "image/jpeg" | "image/gif";
+  scaleMode?: "FILL" | "FIT";
+  cornerRadius?: number;
+  topLeftRadius?: number;
+  topRightRadius?: number;
+  bottomRightRadius?: number;
+  bottomLeftRadius?: number;
+  strokes?: SourcePaint[];
+  strokeWeight?: number;
+  strokeTopWeight?: number;
+  strokeRightWeight?: number;
+  strokeBottomWeight?: number;
+  strokeLeftWeight?: number;
+  strokeAlign?: "INSIDE" | "CENTER" | "OUTSIDE";
+  effects?: SourceEffect[];
 }
 
 export interface SourceVectorNode extends SourceBaseNode {
@@ -74,6 +137,7 @@ export type SourceSceneNode =
   | SourceFrameNode
   | SourceTextNode
   | SourceRectangleNode
+  | SourceImageNode
   | SourceVectorNode;
 
 export interface SourceVariant {
@@ -108,6 +172,108 @@ function finiteNumber(value: unknown): value is number {
   return typeof value === "number" && Number.isFinite(value);
 }
 
+function validateColor(
+  value: unknown,
+  path: string,
+  errors: string[],
+  requireAlpha = false,
+): void {
+  if (!isRecord(value)) {
+    errors.push(`${path} must be a color object.`);
+    return;
+  }
+  for (const channel of requireAlpha ? ["r", "g", "b", "a"] : ["r", "g", "b"]) {
+    if (
+      !finiteNumber(value[channel]) ||
+      value[channel] < 0 ||
+      value[channel] > 1
+    ) {
+      errors.push(`${path}.${channel} must be between 0 and 1.`);
+    }
+  }
+  if (
+    !requireAlpha &&
+    value.a !== undefined &&
+    (!finiteNumber(value.a) || value.a < 0 || value.a > 1)
+  ) {
+    errors.push(`${path}.a must be between 0 and 1.`);
+  }
+}
+
+function validatePaint(value: unknown, path: string, errors: string[]): void {
+  if (!isRecord(value)) {
+    errors.push(`${path} must be a paint object.`);
+    return;
+  }
+  if (value.type === "SOLID") {
+    validateColor(value.color, `${path}.color`, errors);
+  } else if (value.type === "GRADIENT_LINEAR") {
+    if (
+      !Array.isArray(value.gradientTransform) ||
+      value.gradientTransform.length !== 2 ||
+      value.gradientTransform.some(
+        (row) =>
+          !Array.isArray(row) ||
+          row.length !== 3 ||
+          row.some((number) => !finiteNumber(number)),
+      )
+    ) {
+      errors.push(`${path}.gradientTransform must be a 2x3 numeric matrix.`);
+    }
+    if (!Array.isArray(value.gradientStops) || value.gradientStops.length < 2) {
+      errors.push(`${path}.gradientStops must contain at least two stops.`);
+    } else {
+      value.gradientStops.forEach((stop, index) => {
+        const stopPath = `${path}.gradientStops[${index}]`;
+        if (!isRecord(stop)) {
+          errors.push(`${stopPath} must be an object.`);
+          return;
+        }
+        if (
+          !finiteNumber(stop.position) ||
+          stop.position < 0 ||
+          stop.position > 1
+        ) {
+          errors.push(`${stopPath}.position must be between 0 and 1.`);
+        }
+        validateColor(stop.color, `${stopPath}.color`, errors, true);
+      });
+    }
+  } else {
+    errors.push(`${path}.type is not supported.`);
+  }
+  if (
+    value.opacity !== undefined &&
+    (!finiteNumber(value.opacity) || value.opacity < 0 || value.opacity > 1)
+  ) {
+    errors.push(`${path}.opacity must be between 0 and 1.`);
+  }
+}
+
+function validateEffect(value: unknown, path: string, errors: string[]): void {
+  if (!isRecord(value)) {
+    errors.push(`${path} must be an effect object.`);
+    return;
+  }
+  if (!["DROP_SHADOW", "INNER_SHADOW"].includes(String(value.type))) {
+    errors.push(`${path}.type is not supported.`);
+  }
+  validateColor(value.color, `${path}.color`, errors, true);
+  if (
+    !isRecord(value.offset) ||
+    !finiteNumber(value.offset.x) ||
+    !finiteNumber(value.offset.y)
+  ) {
+    errors.push(`${path}.offset must contain numeric x and y values.`);
+  }
+  if (!finiteNumber(value.radius) || value.radius < 0) {
+    errors.push(`${path}.radius must be a non-negative number.`);
+  }
+  if (value.spread !== undefined && !finiteNumber(value.spread)) {
+    errors.push(`${path}.spread must be a number.`);
+  }
+}
+
 function validateSceneNode(
   value: unknown,
   path: string,
@@ -117,7 +283,11 @@ function validateSceneNode(
     errors.push(`${path} must be an object.`);
     return;
   }
-  if (!["FRAME", "TEXT", "RECTANGLE", "VECTOR"].includes(String(value.type))) {
+  if (
+    !["FRAME", "TEXT", "RECTANGLE", "IMAGE", "VECTOR"].includes(
+      String(value.type),
+    )
+  ) {
     errors.push(`${path}.type is not supported.`);
   }
   if (typeof value.name !== "string" || !value.name.trim()) {
@@ -141,6 +311,51 @@ function validateSceneNode(
       );
     }
   }
+  for (const field of ["fills", "strokes"]) {
+    if (value[field] !== undefined) {
+      if (!Array.isArray(value[field])) {
+        errors.push(`${path}.${field} must be an array.`);
+      } else {
+        value[field].forEach((paint, index) =>
+          validatePaint(paint, `${path}.${field}[${index}]`, errors),
+        );
+      }
+    }
+  }
+  if (value.effects !== undefined) {
+    if (!Array.isArray(value.effects)) {
+      errors.push(`${path}.effects must be an array.`);
+    } else {
+      value.effects.forEach((effect, index) =>
+        validateEffect(effect, `${path}.effects[${index}]`, errors),
+      );
+    }
+  }
+  for (const field of [
+    "cornerRadius",
+    "topLeftRadius",
+    "topRightRadius",
+    "bottomRightRadius",
+    "bottomLeftRadius",
+    "strokeWeight",
+    "strokeTopWeight",
+    "strokeRightWeight",
+    "strokeBottomWeight",
+    "strokeLeftWeight",
+  ]) {
+    if (
+      value[field] !== undefined &&
+      (!finiteNumber(value[field]) || value[field] < 0)
+    ) {
+      errors.push(`${path}.${field} must be a non-negative number.`);
+    }
+  }
+  if (
+    value.strokeAlign !== undefined &&
+    !["INSIDE", "CENTER", "OUTSIDE"].includes(String(value.strokeAlign))
+  ) {
+    errors.push(`${path}.strokeAlign is invalid.`);
+  }
   if (
     value.type === "TEXT" &&
     (typeof value.characters !== "string" ||
@@ -152,6 +367,22 @@ function validateSceneNode(
   }
   if (value.type === "VECTOR" && typeof value.svg !== "string") {
     errors.push(`${path}.svg must be a string.`);
+  }
+  if (value.type === "IMAGE") {
+    if (typeof value.data !== "string" || !value.data) {
+      errors.push(`${path}.data must be a non-empty base64 string.`);
+    } else if (!/^[A-Za-z0-9+/]+={0,2}$/.test(value.data)) {
+      errors.push(`${path}.data must contain valid base64 characters.`);
+    }
+    if (!["image/png", "image/jpeg", "image/gif"].includes(String(value.mimeType))) {
+      errors.push(`${path}.mimeType is not supported.`);
+    }
+    if (
+      value.scaleMode !== undefined &&
+      !["FILL", "FIT"].includes(String(value.scaleMode))
+    ) {
+      errors.push(`${path}.scaleMode is invalid.`);
+    }
   }
 }
 
