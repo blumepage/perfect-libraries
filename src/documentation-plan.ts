@@ -45,6 +45,19 @@ function slug(value: string): string {
     .replace(/^-+|-+$/g, "");
 }
 
+function stableHash(value: string): string {
+  let hash = 2_166_136_261;
+  for (const character of value) {
+    hash ^= character.codePointAt(0) ?? 0;
+    hash = Math.imul(hash, 16_777_619);
+  }
+  return (hash >>> 0).toString(36);
+}
+
+function fallbackGroupId(value: string): string {
+  return `${slug(value) || "components"}-${stableHash(value)}`;
+}
+
 function groupOrder(left: string, right: string): number {
   if (left === "Foundations") return -1;
   if (right === "Foundations") return 1;
@@ -70,9 +83,14 @@ export function createDocumentationPlan(
     }
   }
 
-  const groups = new Map<string, DocumentationComponent[]>();
+  const groups = new Map<
+    string,
+    { name: string; components: DocumentationComponent[] }
+  >();
   for (const component of components) {
     const group = component.documentation?.group ?? "Components";
+    const groupId =
+      component.documentation?.groupId ?? fallbackGroupId(group);
     const axes = new Map<string, string[]>();
     const combinations = component.variants.map((variant) => {
       for (const [name, value] of Object.entries(variant.properties)) {
@@ -111,18 +129,26 @@ export function createDocumentationPlan(
         (dependent) => names.get(dependent) ?? dependent,
       ),
     };
-    const grouped = groups.get(group) ?? [];
-    grouped.push(documentation);
-    groups.set(group, grouped);
+    const grouped = groups.get(groupId);
+    if (grouped && grouped.name !== group) {
+      throw new Error(
+        `Documentation group id "${groupId}" is used by both "${grouped.name}" and "${group}".`,
+      );
+    }
+    const entry = grouped ?? { name: group, components: [] };
+    entry.components.push(documentation);
+    groups.set(groupId, entry);
   }
 
   return {
     groups: [...groups.entries()]
-      .sort(([left], [right]) => groupOrder(left, right))
-      .map(([name, grouped]) => ({
-        id: slug(name) || "components",
-        name,
-        components: grouped.sort((left, right) => left.name.localeCompare(right.name)),
+      .sort(([, left], [, right]) => groupOrder(left.name, right.name))
+      .map(([id, group]) => ({
+        id,
+        name: group.name,
+        components: group.components.sort((left, right) =>
+          left.name.localeCompare(right.name),
+        ),
       })),
   };
 }

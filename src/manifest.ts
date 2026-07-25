@@ -133,6 +133,7 @@ export interface StorybookControlDefinition {
 }
 
 export interface ComponentDocumentationDefinition {
+  groupId?: string;
   group: string;
   controls?: StorybookControlDefinition[];
 }
@@ -427,8 +428,23 @@ export function validateManifest(input: unknown): ValidationResult {
     if (!nonEmptyString(component.name)) {
       errors.push(pathLabel(`${path}.name`, "must be a non-empty string"));
     }
-    if (component.documentation) {
-      if (!nonEmptyString(component.documentation.group)) {
+    const documentation = component.documentation as unknown;
+    if (documentation !== undefined) {
+      if (!isRecord(documentation)) {
+        errors.push(pathLabel(`${path}.documentation`, "must be an object"));
+      } else {
+      if (
+        documentation.groupId !== undefined &&
+        !nonEmptyString(documentation.groupId)
+      ) {
+        errors.push(
+          pathLabel(
+            `${path}.documentation.groupId`,
+            "must be a non-empty string",
+          ),
+        );
+      }
+      if (!nonEmptyString(documentation.group)) {
         errors.push(
           pathLabel(
             `${path}.documentation.group`,
@@ -436,16 +452,66 @@ export function validateManifest(input: unknown): ValidationResult {
           ),
         );
       }
+      const controls = documentation.controls;
+      if (controls !== undefined && !Array.isArray(controls)) {
+        errors.push(
+          pathLabel(`${path}.documentation.controls`, "must be an array"),
+        );
+      }
       for (const [controlIndex, control] of (
-        component.documentation.controls ?? []
+        Array.isArray(controls) ? controls : []
       ).entries()) {
         const controlPath = `${path}.documentation.controls[${controlIndex}]`;
+        if (!isRecord(control)) {
+          errors.push(pathLabel(controlPath, "must be an object"));
+          continue;
+        }
         if (!nonEmptyString(control.name)) {
           errors.push(pathLabel(`${controlPath}.name`, "must be a non-empty string"));
         }
         if (!nonEmptyString(control.type)) {
           errors.push(pathLabel(`${controlPath}.type`, "must be a non-empty string"));
         }
+        for (const field of ["label", "description", "category"] as const) {
+          if (
+            control[field] !== undefined &&
+            typeof control[field] !== "string"
+          ) {
+            errors.push(pathLabel(`${controlPath}.${field}`, "must be a string"));
+          }
+        }
+        if (
+          control.defaultValue !== undefined &&
+          control.defaultValue !== null &&
+          !["string", "number", "boolean"].includes(
+            typeof control.defaultValue,
+          )
+        ) {
+          errors.push(
+            pathLabel(
+              `${controlPath}.defaultValue`,
+              "must be a string, number, boolean, or null",
+            ),
+          );
+        }
+        if (control.options !== undefined) {
+          if (!Array.isArray(control.options)) {
+            errors.push(pathLabel(`${controlPath}.options`, "must be an array"));
+          } else if (
+            control.options.some(
+              (option) =>
+                !["string", "number", "boolean"].includes(typeof option),
+            )
+          ) {
+            errors.push(
+              pathLabel(
+                `${controlPath}.options`,
+                "may contain only strings, numbers, and booleans",
+              ),
+            );
+          }
+        }
+      }
       }
     }
     if (!Array.isArray(component.variants) || component.variants.length === 0) {

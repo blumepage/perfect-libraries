@@ -8,7 +8,7 @@ test("documentation plan keeps exact combinations and reverse relationships", ()
     {
       id: "heading",
       name: "Heading",
-      documentation: { group: "Foundations" },
+      documentation: { groupId: "foundations", group: "Foundations" },
       variants: [
         { id: "heading-sm", sourceNode: "Heading / Small", properties: { Size: "Small" } },
       ],
@@ -18,6 +18,7 @@ test("documentation plan keeps exact combinations and reverse relationships", ()
       name: "Button",
       description: "Triggers an action.",
       documentation: {
+        groupId: "controls",
         group: "Controls",
         controls: [{ name: "disabled", type: "boolean", defaultValue: false }],
       },
@@ -49,4 +50,27 @@ test("documentation plan keeps exact combinations and reverse relationships", ()
   );
   assert.deepEqual(button.uses, ["Heading"]);
   assert.deepEqual(plan.groups[0].components[0].usedBy, ["Button"]);
+});
+
+test("documentation group ids are unique and reject conflicting names", () => {
+  const components = [
+    {
+      id: "first",
+      name: "First",
+      documentation: { group: "A/B" },
+      variants: [{ id: "first-default", sourceNode: "First", properties: { State: "Default" } }],
+    },
+    {
+      id: "second",
+      name: "Second",
+      documentation: { group: "A B" },
+      variants: [{ id: "second-default", sourceNode: "Second", properties: { State: "Default" } }],
+    },
+  ];
+  const plan = createDocumentationPlan(components);
+  assert.equal(new Set(plan.groups.map((group) => group.id)).size, 2);
+
+  components[0].documentation.groupId = "shared";
+  components[1].documentation.groupId = "shared";
+  assert.throws(() => createDocumentationPlan(components), /used by both/);
 });

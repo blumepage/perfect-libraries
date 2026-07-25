@@ -255,6 +255,7 @@
       "additionalProperties": false,
       "required": ["group"],
       "properties": {
+        "groupId": { "type": "string", "minLength": 1 },
         "group": { "type": "string", "minLength": 1 },
         "controls": {
           "type": "array",

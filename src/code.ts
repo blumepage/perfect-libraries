@@ -2739,6 +2739,47 @@ function layoutLibraryAssets(
   }
 }
 
+function reconcileDocumentationPages(
+  manifest: PerfectLibrariesManifest,
+  desiredEntityIds: Set<string>,
+): void {
+  for (const page of [...figma.root.children]) {
+    if (
+      page.getSharedPluginData(PLUGIN_NAMESPACE, "libraryId") !==
+        manifest.library.id ||
+      page.getSharedPluginData(PLUGIN_NAMESPACE, "entityType") !==
+        "documentation-page"
+    ) {
+      continue;
+    }
+    const entityId = page.getSharedPluginData(
+      PLUGIN_NAMESPACE,
+      "entityId",
+    );
+    if (desiredEntityIds.has(entityId)) continue;
+    for (const node of [...page.children]) {
+      if (
+        "getSharedPluginData" in node &&
+        node.getSharedPluginData(PLUGIN_NAMESPACE, "libraryId") ===
+          manifest.library.id &&
+        node.getSharedPluginData(PLUGIN_NAMESPACE, "entityType") ===
+          "documentation-root"
+      ) {
+        node.remove();
+      }
+    }
+    if (page.children.length === 0 && page !== figma.currentPage) {
+      page.remove();
+      continue;
+    }
+    page.setSharedPluginData(PLUGIN_NAMESPACE, "libraryId", "");
+    page.setSharedPluginData(PLUGIN_NAMESPACE, "entityType", "");
+    page.setSharedPluginData(PLUGIN_NAMESPACE, "entityId", "");
+    page.setSharedPluginData(PLUGIN_NAMESPACE, "release", "");
+    if (!page.name.endsWith(" (retired)")) page.name += " (retired)";
+  }
+}
+
 async function syncDocumentationPages(
   manifest: PerfectLibrariesManifest,
   runtimes: Map<string, ComponentRuntime>,
@@ -2803,6 +2844,15 @@ async function syncDocumentationPages(
   const sourcesPage = findManagedPage(manifest.library.id, "sources");
   if (sourcesPage) orderedPages.push(sourcesPage);
   orderedPages.push(assetsPage);
+  reconcileDocumentationPages(
+    manifest,
+    new Set([
+      "cover",
+      "assets",
+      ...(sourcesPage ? ["sources"] : []),
+      ...plan.groups.map((group) => `group:${group.id}`),
+    ]),
+  );
   orderedPages.forEach((page, index) => figma.root.insertChild(index, page));
   return coverPage;
 }

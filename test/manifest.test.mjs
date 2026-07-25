@@ -104,6 +104,7 @@ test("the schema URL is stable", () => {
 test("component documentation metadata is accepted and validated", () => {
   const manifest = structuredClone(example);
   manifest.components[0].documentation = {
+    groupId: "controls",
     group: "Controls",
     controls: [
       {
@@ -118,6 +119,23 @@ test("component documentation metadata is accepted and validated", () => {
   assert.equal(validateManifest(manifest).ok, true);
   manifest.components[0].documentation.group = "";
   assert.equal(validateManifest(manifest).ok, false);
+});
+
+test("malformed component documentation returns errors without throwing", () => {
+  const controlsObject = structuredClone(example);
+  controlsObject.components[0].documentation = {
+    group: "Controls",
+    controls: {},
+  };
+  const invalidOptions = structuredClone(example);
+  invalidOptions.components[0].documentation = {
+    group: "Controls",
+    controls: [{ name: "variant", type: "select", options: [{}] }],
+  };
+
+  assert.doesNotThrow(() => validateManifest(controlsObject));
+  assert.equal(validateManifest(controlsObject).ok, false);
+  assert.equal(validateManifest(invalidOptions).ok, false);
 });
 
 test("the built Figma manifest resolves bundle paths beside itself", () => {
