@@ -24,6 +24,8 @@ HTML importer. Perfect Libraries then:
 - binds fills, strokes, text colors, spacing, radii, opacity, and typography to
   variables;
 - exposes text, boolean, and instance-swap component properties;
+- generates a cover, grouped documentation pages, exact-combination galleries,
+  and a separate publishable-assets page from Storybook metadata;
 - audits ambiguous sources and missing Auto Layout;
 - never adopts, deletes, or prunes user-owned content automatically.
 
@@ -89,6 +91,19 @@ Re-run the plugin in Figma after each rebuild.
 
 The plugin is idempotent. Re-running a newer release updates entities with the
 same stable manifest IDs. It never uses display names as ownership proof.
+
+### Generated library documentation
+
+Components may include optional `documentation` metadata with a Storybook group
+and controls. Perfect Libraries turns it into numbered Figma pages and large
+Auto Layout cards containing the component description, Storybook link,
+editable Figma properties, control types/options/defaults, composition
+relationships, and an instance of every exact declared variant combination.
+
+The canonical component and component-set owners remain on `99 · Library
+assets`; documentation pages contain instances. Colors, borders, and radii use
+matching manifest variables when present. Reapplying a release rebuilds only
+plugin-owned documentation frames and preserves the canonical component IDs.
 
 ## Authoring import-friendly HTML
 

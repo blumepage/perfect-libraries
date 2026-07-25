@@ -87,6 +87,14 @@ const semanticSyncPlanOptions = {
   platform: "node",
 };
 
+const documentationPlanOptions = {
+  ...common,
+  entryPoints: [new URL("src/documentation-plan.ts", root).pathname],
+  outfile: new URL("documentation-plan.mjs", dist).pathname,
+  format: "esm",
+  platform: "node",
+};
+
 async function buildUi() {
   const result = await build({
     ...common,
@@ -141,6 +149,7 @@ if (watch) {
     build(sourceTextOptions),
     build(sourceAuditOptions),
     build(semanticSyncPlanOptions),
+    build(documentationPlanOptions),
     buildUi(),
     buildManifest(),
   ]);

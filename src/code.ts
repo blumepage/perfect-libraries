@@ -35,6 +35,11 @@ import {
 } from "./source-text";
 import { shouldWarnMissingAutoLayout } from "./source-audit";
 import { createSemanticSyncPlan } from "./semantic-sync-plan";
+import {
+  createDocumentationPlan,
+  type DocumentationComponent,
+  type DocumentationGroup,
+} from "./documentation-plan";
 
 declare const __html__: string;
 
@@ -46,6 +51,7 @@ const UI_HEIGHT = 760;
 const MAX_FEED_BYTES = 12_000_000;
 
 type ManagedSceneNode = SceneNode & PluginDataMixin;
+type ManagedPage = PageNode & PluginDataMixin;
 type ManagedVariable = Variable & PluginDataMixin;
 type ManagedCollection = VariableCollection & PluginDataMixin;
 type ComponentOwner = ComponentNode | ComponentSetNode;
@@ -61,6 +67,8 @@ interface SyncCounters {
   nestedInstancesCreated: number;
   bindingsApplied: number;
   componentPropertiesApplied: number;
+  documentationPagesCreated: number;
+  documentationCardsCreated: number;
 }
 
 interface Report {
@@ -396,6 +404,8 @@ async function inspect(input: unknown): Promise<Report & { type: "report" }> {
     };
   }
 
+  await figma.loadAllPagesAsync();
+  await selectManagedSourcePage(validation.manifest);
   const resolvedSources = await resolveSourceLookup(validation.manifest);
   const sourceLookup = resolvedSources.lookup;
   const managed = findManagedSceneNodes(validation.manifest.library.id);
@@ -442,6 +452,8 @@ async function apply(input: unknown): Promise<Report & { type: "report" }> {
   }
 
   const manifest = validation.manifest;
+  await figma.loadAllPagesAsync();
+  await selectManagedSourcePage(manifest);
   const resolvedSources = await resolveSourceLookup(manifest);
   const sourceLookup = resolvedSources.lookup;
   const sourceWarnings = resolvedSources.warnings;
@@ -479,6 +491,8 @@ async function apply(input: unknown): Promise<Report & { type: "report" }> {
     nestedInstancesCreated: 0,
     bindingsApplied: 0,
     componentPropertiesApplied: 0,
+    documentationPagesCreated: 0,
+    documentationCardsCreated: 0,
   };
   const warnings = [...validation.warnings, ...sourceWarnings, ...sourceLookup.warnings];
 
@@ -511,13 +525,24 @@ async function apply(input: unknown): Promise<Report & { type: "report" }> {
       }
     }
 
+    const coverPage = await syncDocumentationPages(
+      manifest,
+      componentRuntime,
+      variables,
+      counters,
+    );
     const managedNodes = findManagedSceneNodes(manifest.library.id);
     const auditWarnings = auditManagedComponents(managedNodes);
     warnings.push(...auditWarnings);
 
-    figma.currentPage.selection = [...componentRuntime.values()].map(
-      (runtime) => runtime.owner,
+    await figma.setCurrentPageAsync(coverPage);
+    const coverRoot = findManagedSceneNode(
+      manifest.library.id,
+      "documentation-root",
+      "cover",
     );
+    figma.currentPage.selection =
+      coverRoot && coverRoot.type === "FRAME" ? [coverRoot] : [];
     if (figma.currentPage.selection.length > 0) {
       figma.viewport.scrollAndZoomIntoView(figma.currentPage.selection);
     }
@@ -534,6 +559,7 @@ async function apply(input: unknown): Promise<Report & { type: "report" }> {
         `${counters.componentsCreated} variants created, ${counters.componentsUpdated} updated`,
         `${counters.nestedInstancesCreated} nested instances linked`,
         `${counters.bindingsApplied} variable bindings applied`,
+        `${counters.documentationPagesCreated} documentation pages and ${counters.documentationCardsCreated} component cards generated`,
         "Review the selected components, then use Figma’s native library publishing flow.",
       ],
       counters,
@@ -1020,7 +1046,7 @@ function auditSourceAutoLayout(nodes: Map<string, SceneNode>): string[] {
 }
 
 function findManagedSceneNodes(libraryId: string): ManagedSceneNode[] {
-  return figma.currentPage
+  return figma.root
     .findAllWithCriteria({
       sharedPluginData: {
         namespace: PLUGIN_NAMESPACE,
@@ -1029,6 +1055,7 @@ function findManagedSceneNodes(libraryId: string): ManagedSceneNode[] {
     })
     .filter(
       (node): node is ManagedSceneNode =>
+        node.type !== "PAGE" &&
         "getSharedPluginData" in node &&
         node.getSharedPluginData(PLUGIN_NAMESPACE, "libraryId") === libraryId,
     );
@@ -1066,7 +1093,7 @@ function isManaged(node: SceneNode, libraryId: string): boolean {
 }
 
 function tagManaged(
-  entity: ManagedSceneNode | ManagedVariable | ManagedCollection,
+  entity: ManagedSceneNode | ManagedPage | ManagedVariable | ManagedCollection,
   manifest: PerfectLibrariesManifest,
   entityType: string,
   entityId: string,
@@ -1990,6 +2017,794 @@ function setFriendlyInstanceProperties(
     resolved[key] = value;
   }
   if (Object.keys(resolved).length > 0) instance.setProperties(resolved);
+}
+
+interface DocumentationFonts {
+  heading: FontName;
+  body: FontName;
+  bodyMedium: FontName;
+}
+
+const DOCUMENTATION_COLORS = {
+  canvas: "#f4ead6",
+  card: "#fbf4e2",
+  inner: "#f7ecd5",
+  subtle: "#efe2c8",
+  borderCard: "#e5d8ba",
+  borderSubtle: "#dfcfad",
+  textStrong: "#2f2a22",
+  textBody: "#51493d",
+  textMuted: "#7b705f",
+};
+
+function findManagedPage(
+  libraryId: string,
+  entityId: string,
+): ManagedPage | undefined {
+  return figma.root.children.find(
+    (page) =>
+      page.getSharedPluginData(PLUGIN_NAMESPACE, "libraryId") === libraryId &&
+      page.getSharedPluginData(PLUGIN_NAMESPACE, "entityType") ===
+        "documentation-page" &&
+      page.getSharedPluginData(PLUGIN_NAMESPACE, "entityId") === entityId,
+  ) as ManagedPage | undefined;
+}
+
+async function selectManagedSourcePage(
+  manifest: PerfectLibrariesManifest,
+): Promise<void> {
+  const release = cachedRelease;
+  if (
+    release?.libraryId !== manifest.library.id ||
+    release.release !== manifest.library.release ||
+    !release.sourcesUrl
+  ) {
+    return;
+  }
+  let page = findManagedPage(manifest.library.id, "sources");
+  if (!page) {
+    page = figma.createPage() as ManagedPage;
+    tagManaged(page, manifest, "documentation-page", "sources");
+  }
+  page.name = "98 · Import sources";
+  page.backgrounds = [documentationPaint(DOCUMENTATION_COLORS.canvas)];
+  await figma.setCurrentPageAsync(page);
+}
+
+function ensureManagedPage(
+  manifest: PerfectLibrariesManifest,
+  entityId: string,
+  name: string,
+  counters: SyncCounters,
+): ManagedPage {
+  let page = findManagedPage(manifest.library.id, entityId);
+  if (!page) {
+    page = figma.createPage() as ManagedPage;
+    tagManaged(page, manifest, "documentation-page", entityId);
+    counters.documentationPagesCreated += 1;
+  }
+  page.name = name;
+  page.backgrounds = [documentationPaint(DOCUMENTATION_COLORS.canvas)];
+  return page;
+}
+
+function documentationPaint(
+  hex: string,
+  variable?: Variable,
+): SolidPaint {
+  const normalized = normalizeColor(hex);
+  const paint: SolidPaint = {
+    type: "SOLID",
+    color: { r: normalized.r, g: normalized.g, b: normalized.b },
+    ...("a" in normalized && normalized.a !== undefined
+      ? { opacity: normalized.a }
+      : {}),
+  };
+  return variable
+    ? figma.variables.setBoundVariableForPaint(paint, "color", variable)
+    : paint;
+}
+
+function setDocumentationFill(
+  node: FrameNode | TextNode,
+  fallback: string,
+  tokenId: string,
+  variables: Map<string, Variable>,
+): void {
+  node.fills = [documentationPaint(fallback, variables.get(tokenId))];
+}
+
+function setDocumentationStroke(
+  node: FrameNode,
+  fallback: string,
+  tokenId: string,
+  variables: Map<string, Variable>,
+): void {
+  node.strokes = [documentationPaint(fallback, variables.get(tokenId))];
+}
+
+function setDocumentationRadius(
+  node: FrameNode,
+  fallback: number,
+  tokenId: string,
+  variables: Map<string, Variable>,
+): void {
+  node.cornerRadius = fallback;
+  const variable = variables.get(tokenId);
+  if (!variable) return;
+  node.setBoundVariable("topLeftRadius", variable);
+  node.setBoundVariable("topRightRadius", variable);
+  node.setBoundVariable("bottomRightRadius", variable);
+  node.setBoundVariable("bottomLeftRadius", variable);
+}
+
+function chooseDocumentationFont(
+  fonts: readonly Font[],
+  preferences: Array<[string, string]>,
+): FontName {
+  for (const [family, style] of preferences) {
+    const match = fonts.find(
+      (font) =>
+        font.fontName.family === family && font.fontName.style === style,
+    );
+    if (match) return match.fontName;
+  }
+  const fallback = fonts[0];
+  if (!fallback) throw new Error("Figma did not report any available fonts.");
+  return fallback.fontName;
+}
+
+async function loadDocumentationFonts(): Promise<DocumentationFonts> {
+  const available = await figma.listAvailableFontsAsync();
+  const heading = chooseDocumentationFont(available, [
+    ["Gelica", "Medium"],
+    ["Gelica", "Regular"],
+    ["Inter", "Medium"],
+    ["Inter", "Regular"],
+  ]);
+  const body = chooseDocumentationFont(available, [
+    ["SN Pro", "Regular"],
+    ["Inter", "Regular"],
+  ]);
+  const bodyMedium = chooseDocumentationFont(available, [
+    ["SN Pro", "Medium"],
+    ["Inter", "Medium"],
+    ["Inter", "Regular"],
+  ]);
+  for (const font of [heading, body, bodyMedium]) {
+    await figma.loadFontAsync(font);
+  }
+  return { heading, body, bodyMedium };
+}
+
+function createDocumentationFrame(
+  name: string,
+  width: number,
+  gap: number,
+  padding: number,
+): FrameNode {
+  const frame = figma.createFrame();
+  frame.name = name;
+  frame.layoutMode = "VERTICAL";
+  frame.primaryAxisSizingMode = "AUTO";
+  frame.counterAxisSizingMode = "FIXED";
+  frame.primaryAxisAlignItems = "MIN";
+  frame.counterAxisAlignItems = "MIN";
+  frame.itemSpacing = gap;
+  frame.paddingTop = padding;
+  frame.paddingRight = padding;
+  frame.paddingBottom = padding;
+  frame.paddingLeft = padding;
+  frame.resizeWithoutConstraints(width, 100);
+  frame.clipsContent = false;
+  return frame;
+}
+
+function createDocumentationText(
+  characters: string,
+  font: FontName,
+  fontSize: number,
+  lineHeight: number,
+  width: number,
+  fallback: string,
+  tokenId: string,
+  variables: Map<string, Variable>,
+): TextNode {
+  const text = figma.createText();
+  text.fontName = font;
+  text.characters = characters || " ";
+  text.fontSize = fontSize;
+  text.lineHeight = { unit: "PIXELS", value: lineHeight };
+  text.textAutoResize = "HEIGHT";
+  text.resize(width, lineHeight);
+  setDocumentationFill(text, fallback, tokenId, variables);
+  return text;
+}
+
+function appendDocumentationText(
+  parent: FrameNode,
+  text: TextNode,
+): void {
+  parent.appendChild(text);
+  text.layoutSizingHorizontal = "FILL";
+}
+
+function clearDocumentationRoot(
+  page: PageNode,
+  manifest: PerfectLibrariesManifest,
+  entityId: string,
+): void {
+  for (const node of page.children) {
+    if (
+      "getSharedPluginData" in node &&
+      node.getSharedPluginData(PLUGIN_NAMESPACE, "libraryId") ===
+        manifest.library.id &&
+      node.getSharedPluginData(PLUGIN_NAMESPACE, "entityType") ===
+        "documentation-root" &&
+      node.getSharedPluginData(PLUGIN_NAMESPACE, "entityId") === entityId
+    ) {
+      node.remove();
+    }
+  }
+}
+
+function addDocumentationSection(
+  card: FrameNode,
+  title: string,
+  lines: string[],
+  fonts: DocumentationFonts,
+  variables: Map<string, Variable>,
+): void {
+  if (lines.length === 0) return;
+  const section = createDocumentationFrame(title, 1120, 10, 0);
+  section.fills = [];
+  card.appendChild(section);
+  section.layoutSizingHorizontal = "FILL";
+  appendDocumentationText(
+    section,
+    createDocumentationText(
+      title,
+      fonts.heading,
+      20,
+      28,
+      1120,
+      DOCUMENTATION_COLORS.textStrong,
+      "text-strong",
+      variables,
+    ),
+  );
+  for (const line of lines) {
+    appendDocumentationText(
+      section,
+      createDocumentationText(
+        line,
+        fonts.body,
+        14,
+        21,
+        1120,
+        DOCUMENTATION_COLORS.textBody,
+        "text-body",
+        variables,
+      ),
+    );
+  }
+}
+
+function formatDefaultValue(value: unknown): string {
+  if (typeof value === "string") return `“${value}”`;
+  return JSON.stringify(value);
+}
+
+function propertyDocumentationLines(
+  component: DocumentationComponent,
+): string[] {
+  return component.properties.map((property) => {
+    const defaultValue =
+      property.type === "INSTANCE_SWAP"
+        ? property.defaultComponent
+        : property.defaultValue;
+    return `${property.name} · ${property.type.toLowerCase().replace("_", " ")} · default ${formatDefaultValue(defaultValue)}`;
+  });
+}
+
+function controlDocumentationLines(
+  component: DocumentationComponent,
+): string[] {
+  return component.controls.map((control) => {
+    const details = [
+      control.type,
+      control.options?.length ? `options ${control.options.join(" · ")}` : "",
+      control.defaultValue !== undefined
+        ? `default ${formatDefaultValue(control.defaultValue)}`
+        : "",
+      control.category ? `category ${control.category}` : "",
+    ].filter(Boolean);
+    return `${control.label ?? control.name} · ${details.join(" · ")}${control.description ? `\n${control.description}` : ""}`;
+  });
+}
+
+function buildCombinationGallery(
+  manifest: PerfectLibrariesManifest,
+  component: DocumentationComponent,
+  runtime: ComponentRuntime,
+  fonts: DocumentationFonts,
+  variables: Map<string, Variable>,
+): FrameNode {
+  const gallery = figma.createFrame();
+  gallery.name = "Supported combinations";
+  gallery.layoutMode = "HORIZONTAL";
+  gallery.layoutWrap = "WRAP";
+  gallery.primaryAxisSizingMode = "FIXED";
+  gallery.counterAxisSizingMode = "AUTO";
+  gallery.primaryAxisAlignItems = "MIN";
+  gallery.counterAxisAlignItems = "MIN";
+  gallery.itemSpacing = 16;
+  gallery.counterAxisSpacing = 16;
+  gallery.paddingTop = 24;
+  gallery.paddingRight = 24;
+  gallery.paddingBottom = 24;
+  gallery.paddingLeft = 24;
+  gallery.resizeWithoutConstraints(1120, 100);
+  setDocumentationFill(
+    gallery,
+    DOCUMENTATION_COLORS.inner,
+    "bg-inner",
+    variables,
+  );
+  setDocumentationStroke(
+    gallery,
+    DOCUMENTATION_COLORS.borderSubtle,
+    "border-subtle",
+    variables,
+  );
+  gallery.strokeWeight = 1;
+  setDocumentationRadius(gallery, 14, "radius-card", variables);
+
+  for (const combination of component.combinations) {
+    const variant = runtime.variants.get(combination.variantId);
+    if (!variant) continue;
+    const instance = variant.createInstance();
+    const tileWidth = Math.max(240, Math.min(520, instance.width + 48));
+    const tile = createDocumentationFrame(
+      combination.label,
+      tileWidth,
+      16,
+      20,
+    );
+    setDocumentationFill(
+      tile,
+      DOCUMENTATION_COLORS.card,
+      "bg-card",
+      variables,
+    );
+    setDocumentationRadius(tile, 8, "radius-control", variables);
+    appendDocumentationText(
+      tile,
+      createDocumentationText(
+        combination.label,
+        fonts.bodyMedium,
+        13,
+        18,
+        tileWidth - 40,
+        DOCUMENTATION_COLORS.textMuted,
+        "text-muted",
+        variables,
+      ),
+    );
+    tile.appendChild(instance);
+    gallery.appendChild(tile);
+    tagManaged(
+      tile as ManagedSceneNode,
+      manifest,
+      "documentation-combination",
+      combination.variantId,
+    );
+  }
+  return gallery;
+}
+
+function buildComponentDocumentationCard(
+  manifest: PerfectLibrariesManifest,
+  component: DocumentationComponent,
+  runtime: ComponentRuntime,
+  fonts: DocumentationFonts,
+  variables: Map<string, Variable>,
+): FrameNode {
+  const card = createDocumentationFrame(component.name, 1280, 28, 40);
+  setDocumentationFill(card, DOCUMENTATION_COLORS.card, "bg-card", variables);
+  setDocumentationStroke(
+    card,
+    DOCUMENTATION_COLORS.borderCard,
+    "border-card",
+    variables,
+  );
+  card.strokeWeight = 1;
+  setDocumentationRadius(card, 18, "radius-container", variables);
+  card.effects = [
+    {
+      type: "DROP_SHADOW",
+      color: { r: 0.28, g: 0.22, b: 0.14, a: 0.1 },
+      offset: { x: 0, y: 8 },
+      radius: 24,
+      spread: 0,
+      visible: true,
+      blendMode: "NORMAL",
+    },
+  ];
+  tagManaged(
+    card as ManagedSceneNode,
+    manifest,
+    "documentation-card",
+    component.id,
+  );
+
+  appendDocumentationText(
+    card,
+    createDocumentationText(
+      component.name,
+      fonts.heading,
+      38,
+      46,
+      1200,
+      DOCUMENTATION_COLORS.textStrong,
+      "text-strong",
+      variables,
+    ),
+  );
+  if (component.description) {
+    appendDocumentationText(
+      card,
+      createDocumentationText(
+        component.description,
+        fonts.body,
+        17,
+        26,
+        1200,
+        DOCUMENTATION_COLORS.textBody,
+        "text-body",
+        variables,
+      ),
+    );
+  }
+  if (component.documentationUrl) {
+    const link = createDocumentationText(
+      "Open this component in Storybook ↗",
+      fonts.bodyMedium,
+      14,
+      20,
+      1200,
+      "#6552c8",
+      "accent-bluebell",
+      variables,
+    );
+    link.hyperlink = { type: "URL", value: component.documentationUrl };
+    appendDocumentationText(card, link);
+  }
+
+  addDocumentationSection(
+    card,
+    "Variant axes",
+    component.axes.map((axis) => `${axis.name} · ${axis.values.join(" · ")}`),
+    fonts,
+    variables,
+  );
+  addDocumentationSection(
+    card,
+    "Editable Figma properties",
+    propertyDocumentationLines(component),
+    fonts,
+    variables,
+  );
+  addDocumentationSection(
+    card,
+    "Storybook controls & actions",
+    controlDocumentationLines(component),
+    fonts,
+    variables,
+  );
+  addDocumentationSection(
+    card,
+    "Composition",
+    [
+      component.uses.length ? `Uses · ${component.uses.join(" · ")}` : "",
+      component.usedBy.length
+        ? `Used by · ${component.usedBy.join(" · ")}`
+        : "",
+    ].filter(Boolean),
+    fonts,
+    variables,
+  );
+  addDocumentationSection(
+    card,
+    `Supported combinations · ${component.combinations.length}`,
+    ["The gallery below shows every supported Storybook combination exactly as declared."],
+    fonts,
+    variables,
+  );
+  const gallery = buildCombinationGallery(
+    manifest,
+    component,
+    runtime,
+    fonts,
+    variables,
+  );
+  card.appendChild(gallery);
+  gallery.layoutSizingHorizontal = "FILL";
+  return card;
+}
+
+function buildGroupDocumentationRoot(
+  manifest: PerfectLibrariesManifest,
+  group: DocumentationGroup,
+  runtimes: Map<string, ComponentRuntime>,
+  fonts: DocumentationFonts,
+  variables: Map<string, Variable>,
+  counters: SyncCounters,
+): FrameNode {
+  const root = createDocumentationFrame(group.name, 1440, 40, 80);
+  root.fills = [];
+  tagManaged(
+    root as ManagedSceneNode,
+    manifest,
+    "documentation-root",
+    group.id,
+  );
+  appendDocumentationText(
+    root,
+    createDocumentationText(
+      group.name,
+      fonts.heading,
+      48,
+      56,
+      1280,
+      DOCUMENTATION_COLORS.textStrong,
+      "text-strong",
+      variables,
+    ),
+  );
+  appendDocumentationText(
+    root,
+    createDocumentationText(
+      `${group.components.length} component${group.components.length === 1 ? "" : "s"} · generated from Storybook`,
+      fonts.body,
+      17,
+      26,
+      1280,
+      DOCUMENTATION_COLORS.textMuted,
+      "text-muted",
+      variables,
+    ),
+  );
+  for (const component of group.components) {
+    const runtime = runtimes.get(component.id);
+    if (!runtime) continue;
+    root.appendChild(
+      buildComponentDocumentationCard(
+        manifest,
+        component,
+        runtime,
+        fonts,
+        variables,
+      ),
+    );
+    counters.documentationCardsCreated += 1;
+  }
+  return root;
+}
+
+function buildCoverRoot(
+  manifest: PerfectLibrariesManifest,
+  groups: DocumentationGroup[],
+  fonts: DocumentationFonts,
+  variables: Map<string, Variable>,
+): FrameNode {
+  const root = createDocumentationFrame("Cover", 1440, 28, 80);
+  setDocumentationFill(root, DOCUMENTATION_COLORS.card, "bg-card", variables);
+  setDocumentationRadius(root, 18, "radius-container", variables);
+  tagManaged(
+    root as ManagedSceneNode,
+    manifest,
+    "documentation-root",
+    "cover",
+  );
+  appendDocumentationText(
+    root,
+    createDocumentationText(
+      manifest.library.name,
+      fonts.heading,
+      64,
+      72,
+      1280,
+      DOCUMENTATION_COLORS.textStrong,
+      "text-strong",
+      variables,
+    ),
+  );
+  appendDocumentationText(
+    root,
+    createDocumentationText(
+      `Release ${manifest.library.release}`,
+      fonts.bodyMedium,
+      18,
+      26,
+      1280,
+      DOCUMENTATION_COLORS.textMuted,
+      "text-muted",
+      variables,
+    ),
+  );
+  appendDocumentationText(
+    root,
+    createDocumentationText(
+      `${manifest.components.length} components · ${manifest.components.reduce((count, component) => count + component.variants.length, 0)} exact variants · ${manifest.tokenCollections.reduce((count, collection) => count + collection.tokens.length, 0)} design variables`,
+      fonts.body,
+      20,
+      30,
+      1280,
+      DOCUMENTATION_COLORS.textBody,
+      "text-body",
+      variables,
+    ),
+  );
+  appendDocumentationText(
+    root,
+    createDocumentationText(
+      "This file is generated from the Storybook catalog. Component descriptions, controls, actions, supported combinations, relationships, and previews update with each UI release.",
+      fonts.body,
+      18,
+      28,
+      1280,
+      DOCUMENTATION_COLORS.textBody,
+      "text-body",
+      variables,
+    ),
+  );
+  addDocumentationSection(
+    root,
+    "Library sections",
+    groups.map(
+      (group, index) =>
+        `${String(index + 1).padStart(2, "0")} · ${group.name} · ${group.components.length} components`,
+    ),
+    fonts,
+    variables,
+  );
+  return root;
+}
+
+function layoutLibraryAssets(
+  manifest: PerfectLibrariesManifest,
+  page: PageNode,
+  runtimes: Map<string, ComponentRuntime>,
+  fonts: DocumentationFonts,
+  variables: Map<string, Variable>,
+): void {
+  clearDocumentationRoot(page, manifest, "assets");
+  const header = createDocumentationFrame("Library assets", 1440, 12, 40);
+  setDocumentationFill(header, DOCUMENTATION_COLORS.card, "bg-card", variables);
+  setDocumentationRadius(header, 18, "radius-container", variables);
+  tagManaged(
+    header as ManagedSceneNode,
+    manifest,
+    "documentation-root",
+    "assets",
+  );
+  appendDocumentationText(
+    header,
+    createDocumentationText(
+      "Library assets",
+      fonts.heading,
+      40,
+      48,
+      1360,
+      DOCUMENTATION_COLORS.textStrong,
+      "text-strong",
+      variables,
+    ),
+  );
+  appendDocumentationText(
+    header,
+    createDocumentationText(
+      "Canonical publishable components. Use the numbered pages for guidance and combination previews.",
+      fonts.body,
+      16,
+      24,
+      1360,
+      DOCUMENTATION_COLORS.textBody,
+      "text-body",
+      variables,
+    ),
+  );
+  page.appendChild(header);
+  header.x = 80;
+  header.y = 80;
+
+  let x = 80;
+  let y = header.y + header.height + 120;
+  let rowHeight = 0;
+  for (const runtime of [...runtimes.values()].sort((left, right) =>
+    left.definition.name.localeCompare(right.definition.name),
+  )) {
+    const owner = runtime.owner;
+    page.appendChild(owner);
+    if (x > 80 && x + owner.width > 2800) {
+      x = 80;
+      y += rowHeight + 120;
+      rowHeight = 0;
+    }
+    owner.x = x;
+    owner.y = y;
+    x += owner.width + 120;
+    rowHeight = Math.max(rowHeight, owner.height);
+  }
+}
+
+async function syncDocumentationPages(
+  manifest: PerfectLibrariesManifest,
+  runtimes: Map<string, ComponentRuntime>,
+  variables: Map<string, Variable>,
+  counters: SyncCounters,
+): Promise<PageNode> {
+  const fonts = await loadDocumentationFonts();
+  const plan = createDocumentationPlan(manifest.components);
+  const coverPage = ensureManagedPage(
+    manifest,
+    "cover",
+    "00 · Cover",
+    counters,
+  );
+  clearDocumentationRoot(coverPage, manifest, "cover");
+  const coverRoot = buildCoverRoot(
+    manifest,
+    plan.groups,
+    fonts,
+    variables,
+  );
+  coverPage.appendChild(coverRoot);
+  coverRoot.x = 80;
+  coverRoot.y = 80;
+
+  const orderedPages: PageNode[] = [coverPage];
+  for (const [index, group] of plan.groups.entries()) {
+    const page = ensureManagedPage(
+      manifest,
+      `group:${group.id}`,
+      `${String(index + 1).padStart(2, "0")} · ${group.name}`,
+      counters,
+    );
+    clearDocumentationRoot(page, manifest, group.id);
+    const root = buildGroupDocumentationRoot(
+      manifest,
+      group,
+      runtimes,
+      fonts,
+      variables,
+      counters,
+    );
+    page.appendChild(root);
+    root.x = 80;
+    root.y = 80;
+    orderedPages.push(page);
+  }
+
+  const assetsPage = ensureManagedPage(
+    manifest,
+    "assets",
+    "99 · Library assets",
+    counters,
+  );
+  layoutLibraryAssets(
+    manifest,
+    assetsPage,
+    runtimes,
+    fonts,
+    variables,
+  );
+  const sourcesPage = findManagedPage(manifest.library.id, "sources");
+  if (sourcesPage) orderedPages.push(sourcesPage);
+  orderedPages.push(assetsPage);
+  orderedPages.forEach((page, index) => figma.root.insertChild(index, page));
+  return coverPage;
 }
 
 function auditManagedComponents(nodes: ManagedSceneNode[]): string[] {

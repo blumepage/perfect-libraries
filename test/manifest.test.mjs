@@ -101,6 +101,25 @@ test("the schema URL is stable", () => {
   );
 });
 
+test("component documentation metadata is accepted and validated", () => {
+  const manifest = structuredClone(example);
+  manifest.components[0].documentation = {
+    group: "Controls",
+    controls: [
+      {
+        name: "variant",
+        type: "select",
+        options: ["primary", "secondary"],
+        defaultValue: "primary",
+      },
+    ],
+  };
+
+  assert.equal(validateManifest(manifest).ok, true);
+  manifest.components[0].documentation.group = "";
+  assert.equal(validateManifest(manifest).ok, false);
+});
+
 test("the built Figma manifest resolves bundle paths beside itself", () => {
   assert.equal(pluginManifest.id, "1662573031327668831");
   assert.equal(pluginManifest.main, "code.js");

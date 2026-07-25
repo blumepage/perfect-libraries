@@ -122,11 +122,27 @@ export interface ComponentVariantDefinition {
   nestedInstances?: NestedInstanceDefinition[];
 }
 
+export interface StorybookControlDefinition {
+  name: string;
+  label?: string;
+  description?: string;
+  type: string;
+  options?: Array<string | number | boolean>;
+  defaultValue?: string | number | boolean | null;
+  category?: string;
+}
+
+export interface ComponentDocumentationDefinition {
+  group: string;
+  controls?: StorybookControlDefinition[];
+}
+
 export interface ComponentDefinition {
   id: string;
   name: string;
   description?: string;
   documentationUrl?: string;
+  documentation?: ComponentDocumentationDefinition;
   dependencies?: string[];
   properties?: ComponentPropertyDefinition[];
   variants: ComponentVariantDefinition[];
@@ -410,6 +426,27 @@ export function validateManifest(input: unknown): ValidationResult {
     componentIds.add(component.id);
     if (!nonEmptyString(component.name)) {
       errors.push(pathLabel(`${path}.name`, "must be a non-empty string"));
+    }
+    if (component.documentation) {
+      if (!nonEmptyString(component.documentation.group)) {
+        errors.push(
+          pathLabel(
+            `${path}.documentation.group`,
+            "must be a non-empty string",
+          ),
+        );
+      }
+      for (const [controlIndex, control] of (
+        component.documentation.controls ?? []
+      ).entries()) {
+        const controlPath = `${path}.documentation.controls[${controlIndex}]`;
+        if (!nonEmptyString(control.name)) {
+          errors.push(pathLabel(`${controlPath}.name`, "must be a non-empty string"));
+        }
+        if (!nonEmptyString(control.type)) {
+          errors.push(pathLabel(`${controlPath}.type`, "must be a non-empty string"));
+        }
+      }
     }
     if (!Array.isArray(component.variants) || component.variants.length === 0) {
       errors.push(pathLabel(`${path}.variants`, "must contain at least one variant"));
