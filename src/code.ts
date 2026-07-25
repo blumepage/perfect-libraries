@@ -34,6 +34,7 @@ import {
   selectSourceFontName,
 } from "./source-text";
 import { shouldWarnMissingAutoLayout } from "./source-audit";
+import { createSemanticSyncPlan } from "./semantic-sync-plan";
 
 declare const __html__: string;
 
@@ -498,16 +499,16 @@ async function apply(input: unknown): Promise<Report & { type: "report" }> {
       componentRuntime.set(component.id, runtime);
     }
 
-    for (const component of orderedComponents) {
-      const runtime = componentRuntime.get(component.id);
+    for (const step of createSemanticSyncPlan(
+      orderedComponents.map((component) => component.id),
+    )) {
+      const runtime = componentRuntime.get(step.componentId);
       if (!runtime) continue;
-      syncNestedInstances(runtime, componentRuntime, counters, warnings);
-    }
-
-    for (const component of orderedComponents) {
-      const runtime = componentRuntime.get(component.id);
-      if (!runtime) continue;
-      syncComponentProperties(runtime, componentRuntime, counters, warnings);
+      if (step.phase === "nested-instances") {
+        syncNestedInstances(runtime, componentRuntime, counters, warnings);
+      } else {
+        syncComponentProperties(runtime, componentRuntime, counters, warnings);
+      }
     }
 
     const managedNodes = findManagedSceneNodes(manifest.library.id);

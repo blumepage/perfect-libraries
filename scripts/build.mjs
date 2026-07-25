@@ -79,6 +79,14 @@ const sourceAuditOptions = {
   platform: "node",
 };
 
+const semanticSyncPlanOptions = {
+  ...common,
+  entryPoints: [new URL("src/semantic-sync-plan.ts", root).pathname],
+  outfile: new URL("semantic-sync-plan.mjs", dist).pathname,
+  format: "esm",
+  platform: "node",
+};
+
 async function buildUi() {
   const result = await build({
     ...common,
@@ -132,6 +140,7 @@ if (watch) {
     build(serialOperationQueueOptions),
     build(sourceTextOptions),
     build(sourceAuditOptions),
+    build(semanticSyncPlanOptions),
     buildUi(),
     buildManifest(),
   ]);
