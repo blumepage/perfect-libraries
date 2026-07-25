@@ -116,6 +116,7 @@ demoButton.addEventListener("click", () => {
 });
 
 inspectButton.addEventListener("click", () => {
+  if (busy) return;
   const validation = parseManifestJson(editor.value);
   if (!validation.ok || !validation.manifest) {
     renderValidationErrors(validation.errors, validation.warnings);
@@ -123,6 +124,7 @@ inspectButton.addEventListener("click", () => {
   }
   parsedManifest = validation.manifest;
   inspectedSource = editor.value;
+  setBusy(true);
   parent.postMessage(
     { pluginMessage: { type: "inspect", manifest: validation.manifest } },
     "*",
@@ -130,7 +132,8 @@ inspectButton.addEventListener("click", () => {
 });
 
 applyButton.addEventListener("click", () => {
-  if (!parsedManifest || editor.value !== inspectedSource) return;
+  if (busy || !parsedManifest || editor.value !== inspectedSource) return;
+  setBusy(true);
   parent.postMessage(
     { pluginMessage: { type: "apply", manifest: parsedManifest } },
     "*",

@@ -28,6 +28,7 @@ import {
   type SourceTextNode,
 } from "./sources";
 import { validateSourceContract } from "./source-contract";
+import { SerialOperationQueue } from "./serial-operation-queue";
 
 declare const __html__: string;
 
@@ -119,6 +120,7 @@ interface ReleaseState {
 
 let configuredFeedUrl = "";
 let cachedRelease: ResolvedRelease | undefined;
+const manifestOperationQueue = new SerialOperationQueue();
 
 figma.showUI(__html__, {
   width: UI_WIDTH,
@@ -175,18 +177,31 @@ figma.ui.onmessage = async (message: UiMessage) => {
   }
 
   if (message.type === "inspect") {
-    figma.ui.postMessage(await inspect(message.manifest));
+    figma.ui.postMessage({ type: "busy", busy: true });
+    try {
+      figma.ui.postMessage(
+        await manifestOperationQueue.run(() => inspect(message.manifest)),
+      );
+    } finally {
+      figma.ui.postMessage({ type: "busy", busy: false });
+    }
     return;
   }
 
   if (message.type === "apply") {
     figma.ui.postMessage({ type: "busy", busy: true });
-    const report = await apply(message.manifest);
-    figma.ui.postMessage(report);
-    if (report.ok && cachedRelease) {
-      postResolvedRelease(cachedRelease);
+    try {
+      const report = await manifestOperationQueue.run(() =>
+        apply(message.manifest),
+      );
+      figma.ui.postMessage(report);
+      if (report.ok && cachedRelease) {
+        postResolvedRelease(cachedRelease);
+      }
+    } finally {
+      figma.ui.postMessage({ type: "busy", busy: false });
     }
-    figma.ui.postMessage({ type: "busy", busy: false });
+    return;
   }
 };
 
@@ -830,14 +845,16 @@ async function materializeSources(
     }
   }
 
-  let container = findManagedSceneNode(
+  const managedContainers = findManagedSceneNodesByEntity(
     manifest.library.id,
     "source-container",
     manifest.library.id,
   );
-  if (container && container.type !== "FRAME") {
+  if (managedContainers.some((candidate) => candidate.type !== "FRAME")) {
     throw new Error("The managed Storybook source container is not a frame.");
   }
+  let [container, ...duplicateContainers] = managedContainers;
+  for (const duplicate of duplicateContainers) duplicate.remove();
   if (!container) {
     container = figma.createFrame();
     figma.currentPage.appendChild(container);
@@ -888,11 +905,14 @@ async function materializeSources(
 }
 
 function findSourceNodes(manifest: PerfectLibrariesManifest): SourceLookup {
-  const requestedNames = new Set(
+  const requested = new Map(
     manifest.components.flatMap((component) =>
-      component.variants.map((variant) => variant.sourceNode),
+      component.variants.map(
+        (variant) => [variant.sourceNode, variant.id] as const,
+      ),
     ),
   );
+  const requestedNames = new Set(requested.keys());
   const matches = new Map<string, SceneNode[]>();
   for (const name of requestedNames) matches.set(name, []);
 
@@ -911,11 +931,18 @@ function findSourceNodes(manifest: PerfectLibrariesManifest): SourceLookup {
 
   for (const name of requestedNames) {
     const named = matches.get(name) ?? [];
+    const expectedEntityId = requested.get(name);
     const managedSources = named.filter(
       (candidate) =>
         "getSharedPluginData" in candidate &&
+        candidate.getSharedPluginData(PLUGIN_NAMESPACE, "libraryId") ===
+          manifest.library.id &&
         candidate.getSharedPluginData(PLUGIN_NAMESPACE, "entityType") ===
-          "source",
+          "source" &&
+        candidate.getSharedPluginData(PLUGIN_NAMESPACE, "entityId") ===
+          expectedEntityId &&
+        candidate.getSharedPluginData(PLUGIN_NAMESPACE, "release") ===
+          manifest.library.release,
     );
     const candidates = managedSources.length > 0 ? managedSources : named;
     if (candidates.length === 0) {
@@ -998,6 +1025,18 @@ function findManagedSceneNode(
   entityId: string,
 ): ManagedSceneNode | undefined {
   return findManagedSceneNodes(libraryId).find(
+    (node) =>
+      node.getSharedPluginData(PLUGIN_NAMESPACE, "entityType") === entityType &&
+      node.getSharedPluginData(PLUGIN_NAMESPACE, "entityId") === entityId,
+  );
+}
+
+function findManagedSceneNodesByEntity(
+  libraryId: string,
+  entityType: string,
+  entityId: string,
+): ManagedSceneNode[] {
+  return findManagedSceneNodes(libraryId).filter(
     (node) =>
       node.getSharedPluginData(PLUGIN_NAMESPACE, "entityType") === entityType &&
       node.getSharedPluginData(PLUGIN_NAMESPACE, "entityId") === entityId,

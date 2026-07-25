@@ -55,6 +55,14 @@ const sourceContractOptions = {
   platform: "node",
 };
 
+const serialOperationQueueOptions = {
+  ...common,
+  entryPoints: [new URL("src/serial-operation-queue.ts", root).pathname],
+  outfile: new URL("serial-operation-queue.mjs", dist).pathname,
+  format: "esm",
+  platform: "node",
+};
+
 async function buildUi() {
   const result = await build({
     ...common,
@@ -105,6 +113,7 @@ if (watch) {
     build(releaseFeedOptions),
     build(sourcesOptions),
     build(sourceContractOptions),
+    build(serialOperationQueueOptions),
     buildUi(),
     buildManifest(),
   ]);
