@@ -109,12 +109,9 @@ test("the built Figma manifest resolves bundle paths beside itself", () => {
     "https://ui-libraries.blume-page.com",
     "https://raw.githubusercontent.com",
   ]);
-  assert.ok(
-    pluginManifest.networkAccess.devAllowedDomains.every(
-      (domain) =>
-        domain.startsWith("http://localhost:") ||
-        domain.startsWith("http://127.0.0.1:"),
-    ),
-  );
+  assert.deepEqual(pluginManifest.networkAccess.devAllowedDomains, [
+    "http://localhost:3000",
+    "http://localhost:8787",
+  ]);
   assert.match(pluginManifest.networkAccess.reasoning, /never uploads/i);
 });
