@@ -78,17 +78,6 @@ clearFeedButton.addEventListener("click", () => {
   parent.postMessage({ pluginMessage: { type: "clear-feed" } }, "*");
 });
 
-releasePanel.addEventListener("click", (event) => {
-  const target = event.target;
-  if (!(target instanceof HTMLElement)) return;
-  if (target.closest("#load-release") && discoveredRelease) {
-    editor.value = JSON.stringify(discoveredRelease.manifest, null, 2);
-    inspectedSource = "";
-    applyButton.disabled = true;
-    renderLocalValidation();
-  }
-});
-
 editor.addEventListener("input", () => {
   inspectedSource = "";
   applyButton.disabled = true;
@@ -233,7 +222,24 @@ function renderReleaseState(message: ReleaseStateMessage): void {
       <button id="load-release" type="button">${value.pending ? "Load update" : "Load manifest"}</button>
     </div>
   `;
+  const loadReleaseButton =
+    releasePanel.querySelector<HTMLButtonElement>("#load-release");
+  loadReleaseButton?.addEventListener("click", () => {
+    loadDiscoveredRelease(loadReleaseButton);
+  });
   resize();
+}
+
+function loadDiscoveredRelease(button: HTMLButtonElement): void {
+  if (!discoveredRelease) return;
+  editor.value = JSON.stringify(discoveredRelease.manifest, null, 2);
+  inspectedSource = "";
+  applyButton.disabled = true;
+  renderLocalValidation();
+  button.textContent = "Loaded";
+  button.disabled = true;
+  editor.scrollIntoView({ behavior: "smooth", block: "center" });
+  editor.focus({ preventScroll: true });
 }
 
 async function loadFile(file: File): Promise<void> {
