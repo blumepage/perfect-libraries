@@ -209,6 +209,23 @@ test("captures exactly one visible document-level portal source", async () => {
   );
 });
 
+test("omits clipped accessibility-only descendants from visual Auto Layout", async () => {
+  const result = await capture(`
+    <main data-figma-source-node="Tooltip" data-figma-source-root
+      style="display:inline-block;padding:4px 8px">
+      Open Agents
+      <span role="tooltip"
+        style="position:absolute;width:1px;height:1px;padding:0;margin:-1px;overflow:hidden;clip:rect(0,0,0,0)">
+        Open Agents
+      </span>
+    </main>
+  `, "Tooltip");
+
+  assert.equal(result.scene.children.length, 1);
+  assert.equal(result.scene.children[0].type, "TEXT");
+  assert.deepEqual(result.warnings, []);
+});
+
 test("rejects missing and ambiguous visible portal selectors", async () => {
   await assert.rejects(
     capture(`

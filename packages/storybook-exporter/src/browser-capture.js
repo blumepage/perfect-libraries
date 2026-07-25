@@ -7,12 +7,21 @@
   };
   const clamp = (value, minimum = 0, maximum = 1) =>
     Math.min(maximum, Math.max(minimum, value));
-  const visible = (element, style, rect) =>
-    style.display !== "none" &&
-    style.visibility !== "hidden" &&
-    Number.parseFloat(style.opacity || "1") > 0 &&
-    rect.width >= 0.5 &&
-    rect.height >= 0.5;
+  const visible = (element, style, rect) => {
+    const visuallyHidden =
+      style.position === "absolute" &&
+      rect.width <= 1 &&
+      rect.height <= 1 &&
+      (style.clip !== "auto" || (style.clipPath && style.clipPath !== "none"));
+    return (
+      style.display !== "none" &&
+      style.visibility !== "hidden" &&
+      Number.parseFloat(style.opacity || "1") > 0 &&
+      !visuallyHidden &&
+      rect.width >= 0.5 &&
+      rect.height >= 0.5
+    );
+  };
 
   const colorCanvas = document.createElement("canvas");
   colorCanvas.width = 1;
