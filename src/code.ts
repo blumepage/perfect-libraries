@@ -29,6 +29,10 @@ import {
 } from "./sources";
 import { validateSourceContract } from "./source-contract";
 import { SerialOperationQueue } from "./serial-operation-queue";
+import {
+  isSingleLineSourceText,
+  selectSourceFontName,
+} from "./source-text";
 
 declare const __html__: string;
 
@@ -664,26 +668,15 @@ function applySourceGeometry(
   node.effects = sourceEffects(source.effects);
 }
 
-function normalizedFontName(value: string): string {
-  return value.toLowerCase().replace(/[^a-z0-9]/g, "");
-}
-
 async function sourceFont(
   source: SourceTextNode,
   fonts: readonly Font[],
   loaded: Set<string>,
 ): Promise<FontName> {
-  const family = normalizedFontName(source.fontFamily);
-  const style = normalizedFontName(source.fontStyle);
-  const exact = fonts.find(
-    (font) =>
-      normalizedFontName(font.fontName.family) === family &&
-      normalizedFontName(font.fontName.style) === style,
-  );
-  const familyRegular = fonts.find(
-    (font) =>
-      normalizedFontName(font.fontName.family) === family &&
-      normalizedFontName(font.fontName.style) === "regular",
+  const sourceMatch = selectSourceFontName(
+    source.fontFamily,
+    source.fontStyle,
+    fonts,
   );
   const fallback =
     fonts.find(
@@ -691,7 +684,13 @@ async function sourceFont(
         font.fontName.family === "Inter" &&
         font.fontName.style === "Regular",
     ) ?? fonts[0];
-  const selected = exact ?? familyRegular ?? fallback;
+  const selected = sourceMatch
+    ? fonts.find(
+        (font) =>
+          font.fontName.family === sourceMatch.family &&
+          font.fontName.style === sourceMatch.style,
+      )
+    : fallback;
   if (!selected) throw new Error("Figma did not report any available fonts.");
   const key = `${selected.fontName.family}\u0000${selected.fontName.style}`;
   if (!loaded.has(key)) {
@@ -722,8 +721,12 @@ async function createSourceSceneNode(
     text.textAlignHorizontal = source.textAlignHorizontal ?? "LEFT";
     text.fills = sourcePaints(source.fills);
     text.opacity = source.opacity ?? 1;
-    text.textAutoResize = "NONE";
-    text.resize(Math.max(1, source.width), Math.max(1, source.height));
+    if (isSingleLineSourceText(source)) {
+      text.textAutoResize = "WIDTH_AND_HEIGHT";
+    } else {
+      text.textAutoResize = "NONE";
+      text.resize(Math.max(1, source.width), Math.max(1, source.height));
+    }
     text.x = source.x ?? 0;
     text.y = source.y ?? 0;
     return text;
@@ -732,6 +735,11 @@ async function createSourceSceneNode(
   if (source.type === "VECTOR") {
     const vector = figma.createNodeFromSvg(source.svg);
     vector.name = source.name;
+    vector.setSharedPluginData(
+      PLUGIN_NAMESPACE,
+      "sourceRole",
+      "vector-artwork",
+    );
     vector.resize(Math.max(1, source.width), Math.max(1, source.height));
     vector.x = source.x ?? 0;
     vector.y = source.y ?? 0;
@@ -993,7 +1001,9 @@ function auditSourceAutoLayout(nodes: Map<string, SceneNode>): string[] {
         "children" in candidate &&
         candidate.children.length > 1 &&
         "layoutMode" in candidate &&
-        candidate.layoutMode === "NONE",
+        candidate.layoutMode === "NONE" &&
+        candidate.getSharedPluginData(PLUGIN_NAMESPACE, "sourceRole") !==
+          "vector-artwork",
     );
     if (offenders.length > 0) {
       warnings.push(
