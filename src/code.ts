@@ -2713,11 +2713,14 @@ function addDocumentationDataPanel(
   fonts: DocumentationFonts,
   variables: Map<string, Variable>,
   width: number,
-  { columns = 1 }: { columns?: number } = {},
+  {
+    columns = 1,
+    table = false,
+  }: { columns?: number; table?: boolean } = {},
 ): void {
   if (rows.length === 0) return;
-  const columnCount = Math.max(1, Math.floor(columns));
-  const rowGap = 4;
+  const columnCount = table ? 1 : Math.max(1, Math.floor(columns));
+  const rowGap = table ? 0 : 4;
   const rowsWidth = width - 24;
   const rowWidth =
     (rowsWidth - rowGap * Math.max(0, columnCount - 1)) / columnCount;
@@ -2754,10 +2757,10 @@ function addDocumentationDataPanel(
 
   const rowsGrid = figma.createFrame();
   rowsGrid.name = `${title} rows`;
-  rowsGrid.layoutMode = "HORIZONTAL";
-  rowsGrid.layoutWrap = "WRAP";
-  rowsGrid.primaryAxisSizingMode = "FIXED";
-  rowsGrid.counterAxisSizingMode = "AUTO";
+  rowsGrid.layoutMode = table ? "VERTICAL" : "HORIZONTAL";
+  rowsGrid.layoutWrap = table ? "NO_WRAP" : "WRAP";
+  rowsGrid.primaryAxisSizingMode = table ? "AUTO" : "FIXED";
+  rowsGrid.counterAxisSizingMode = table ? "FIXED" : "AUTO";
   rowsGrid.primaryAxisAlignItems = "MIN";
   rowsGrid.counterAxisAlignItems = "MIN";
   rowsGrid.itemSpacing = rowGap;
@@ -2772,21 +2775,24 @@ function addDocumentationDataPanel(
     row.name = rowDefinition.name;
     row.layoutMode = "HORIZONTAL";
     row.primaryAxisSizingMode = "FIXED";
-    row.counterAxisSizingMode = "AUTO";
+    row.counterAxisSizingMode = table ? "FIXED" : "AUTO";
     row.primaryAxisAlignItems = "MIN";
     row.counterAxisAlignItems = "CENTER";
     row.itemSpacing = 6;
-    row.paddingTop = 5;
+    row.paddingTop = table ? 0 : 5;
     row.paddingRight = 8;
-    row.paddingBottom = 5;
+    row.paddingBottom = table ? 0 : 5;
     row.paddingLeft = 8;
     row.resizeWithoutConstraints(rowWidth, 20);
     setDocumentationFill(row, DOCUMENTATION_COLORS.card, "bg-card", variables);
-    setDocumentationRadius(row, 4, "radius-control", variables);
+    if (!table) {
+      setDocumentationRadius(row, 4, "radius-control", variables);
+    }
     rowsGrid.appendChild(row);
-    row.layoutSizingHorizontal = columnCount === 1 ? "FILL" : "FIXED";
+    row.layoutSizingHorizontal =
+      table || columnCount === 1 ? "FILL" : "FIXED";
 
-    const nameWidth = columnCount === 1 ? 104 : 72;
+    const nameWidth = table ? 132 : columnCount === 1 ? 104 : 72;
     const name = createDocumentationText(
       rowDefinition.name,
       fonts.bodyMedium,
@@ -3184,7 +3190,7 @@ function buildComponentDocumentationCard(
     fonts,
     variables,
     DOCUMENTATION_DETAILS_WIDTH,
-    { columns: 3 },
+    { table: true },
   );
   addDocumentationDataPanel(
     detailsColumn,

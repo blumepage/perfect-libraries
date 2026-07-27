@@ -49,8 +49,14 @@ test("component card columns use the requested three-to-two ratio", () => {
 });
 
 test("reference lists render as compact single-line table rows", () => {
-  assert.match(dataPanelRenderer, /rowsGrid\.layoutMode = "HORIZONTAL";/);
-  assert.match(dataPanelRenderer, /rowsGrid\.layoutWrap = "WRAP";/);
+  assert.match(
+    dataPanelRenderer,
+    /rowsGrid\.layoutMode = table \? "VERTICAL" : "HORIZONTAL";/,
+  );
+  assert.match(
+    dataPanelRenderer,
+    /rowsGrid\.layoutWrap = table \? "NO_WRAP" : "WRAP";/,
+  );
   assert.match(
     dataPanelRenderer,
     /rowWidth =\s*\(rowsWidth - rowGap \* Math\.max\(0, columnCount - 1\)\) \/ columnCount;/,
@@ -59,7 +65,7 @@ test("reference lists render as compact single-line table rows", () => {
   assert.match(dataPanelRenderer, /row\.itemSpacing = 6;/);
   assert.match(
     dataPanelRenderer,
-    /const nameWidth = columnCount === 1 \? 104 : 72;/,
+    /const nameWidth = table \? 132 : columnCount === 1 \? 104 : 72;/,
   );
   assert.match(dataPanelRenderer, /fonts\.bodyMedium,\s*8,\s*10,\s*nameWidth,/);
   assert.match(dataPanelRenderer, /fonts\.body,\s*8,\s*10,/);
@@ -102,11 +108,30 @@ test("component cards keep the scan hierarchy in the left column", () => {
   );
 });
 
-test("Storybook controls and actions use three compact columns", () => {
+test("Storybook controls and actions use a single gapless 20px table", () => {
   const controls = renderer.indexOf('"Storybook controls & actions"');
   const composition = renderer.indexOf('"Composition"', controls);
   const controlsCall = renderer.slice(controls, composition);
-  assert.match(controlsCall, /\{ columns: 3 \},/);
+  assert.match(controlsCall, /\{ table: true \},/);
+  assert.doesNotMatch(controlsCall, /columns:\s*3/);
+  assert.match(
+    dataPanelRenderer,
+    /const columnCount = table \? 1 : Math\.max\(1, Math\.floor\(columns\)\);/,
+  );
+  assert.match(dataPanelRenderer, /const rowGap = table \? 0 : 4;/);
+  assert.match(
+    dataPanelRenderer,
+    /rowsGrid\.layoutMode = table \? "VERTICAL" : "HORIZONTAL";/,
+  );
+  assert.match(
+    dataPanelRenderer,
+    /rowsGrid\.layoutWrap = table \? "NO_WRAP" : "WRAP";/,
+  );
+  assert.match(
+    dataPanelRenderer,
+    /row\.counterAxisSizingMode = table \? "FIXED" : "AUTO";/,
+  );
+  assert.match(dataPanelRenderer, /row\.resizeWithoutConstraints\(rowWidth, 20\);/);
 });
 
 test("component titles and subtitles dominate compact reference text", () => {
