@@ -28,6 +28,14 @@ const guidanceRenderer = source.slice(guidanceStart, guidanceEnd);
 test("component card columns use the requested three-to-two ratio", () => {
   assert.match(
     layoutConstants,
+    /const DOCUMENTATION_ROOT_WIDTH = 2160;/,
+  );
+  assert.match(
+    layoutConstants,
+    /const DOCUMENTATION_CARD_WIDTH = 2000;/,
+  );
+  assert.match(
+    layoutConstants,
     /const DOCUMENTATION_COLUMN_UNIT = DOCUMENTATION_COLUMNS_WIDTH \/ 5;/,
   );
   assert.match(
@@ -41,9 +49,19 @@ test("component card columns use the requested three-to-two ratio", () => {
 });
 
 test("reference lists render as compact single-line table rows", () => {
+  assert.match(dataPanelRenderer, /rowsGrid\.layoutMode = "HORIZONTAL";/);
+  assert.match(dataPanelRenderer, /rowsGrid\.layoutWrap = "WRAP";/);
+  assert.match(
+    dataPanelRenderer,
+    /rowWidth =\s*\(rowsWidth - rowGap \* Math\.max\(0, columnCount - 1\)\) \/ columnCount;/,
+  );
   assert.match(dataPanelRenderer, /row\.layoutMode = "HORIZONTAL";/);
   assert.match(dataPanelRenderer, /row\.itemSpacing = 6;/);
-  assert.match(dataPanelRenderer, /fonts\.bodyMedium,\s*8,\s*10,\s*104,/);
+  assert.match(
+    dataPanelRenderer,
+    /const nameWidth = columnCount === 1 \? 104 : 72;/,
+  );
+  assert.match(dataPanelRenderer, /fonts\.bodyMedium,\s*8,\s*10,\s*nameWidth,/);
   assert.match(dataPanelRenderer, /fonts\.body,\s*8,\s*10,/);
   assert.match(dataPanelRenderer, /name\.textTruncation = "ENDING";/);
   assert.match(dataPanelRenderer, /name\.maxLines = 1;/);
@@ -62,20 +80,33 @@ test("component cards keep the scan hierarchy in the left column", () => {
   const title = renderer.indexOf("component.name", left);
   const subtitle = renderer.indexOf("component.description ||", title);
   const preview = renderer.indexOf("const gallery = buildCombinationGallery", subtitle);
-  const right = renderer.indexOf("const detailsColumn", preview);
-  const metrics = renderer.indexOf("addDocumentationMetrics(", right);
+  const reference = renderer.indexOf('"Component reference"', preview);
+  const metrics = renderer.indexOf("addDocumentationMetrics(", reference);
+  const guidance = renderer.indexOf("addDocumentationGuidance(", metrics);
+  const right = renderer.indexOf("const detailsColumn", guidance);
+  const axes = renderer.indexOf('"Variant axes"', right);
 
   assert.ok(body >= 0);
   assert.ok(body < left);
   assert.ok(left < title);
   assert.ok(title < subtitle);
   assert.ok(subtitle < preview);
-  assert.ok(preview < right);
-  assert.ok(right < metrics);
+  assert.ok(preview < reference);
+  assert.ok(reference < metrics);
+  assert.ok(metrics < guidance);
+  assert.ok(guidance < right);
+  assert.ok(right < axes);
   assert.doesNotMatch(
     renderer.slice(0, body),
     /appendDocumentationText\(\s*card/,
   );
+});
+
+test("Storybook controls and actions use three compact columns", () => {
+  const controls = renderer.indexOf('"Storybook controls & actions"');
+  const composition = renderer.indexOf('"Composition"', controls);
+  const controlsCall = renderer.slice(controls, composition);
+  assert.match(controlsCall, /\{ columns: 3 \},/);
 });
 
 test("component titles and subtitles dominate compact reference text", () => {

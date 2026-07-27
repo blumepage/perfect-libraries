@@ -2204,8 +2204,8 @@ const DOCUMENTATION_COLORS = {
   textMuted: "#7b705f",
   accent: "#6552c8",
 };
-const DOCUMENTATION_ROOT_WIDTH = 1600;
-const DOCUMENTATION_CARD_WIDTH = 1440;
+const DOCUMENTATION_ROOT_WIDTH = 2160;
+const DOCUMENTATION_CARD_WIDTH = 2000;
 const DOCUMENTATION_CARD_PADDING = 56;
 const DOCUMENTATION_CONTENT_WIDTH =
   DOCUMENTATION_CARD_WIDTH - DOCUMENTATION_CARD_PADDING * 2;
@@ -2713,8 +2713,14 @@ function addDocumentationDataPanel(
   fonts: DocumentationFonts,
   variables: Map<string, Variable>,
   width: number,
+  { columns = 1 }: { columns?: number } = {},
 ): void {
   if (rows.length === 0) return;
+  const columnCount = Math.max(1, Math.floor(columns));
+  const rowGap = 4;
+  const rowsWidth = width - 24;
+  const rowWidth =
+    (rowsWidth - rowGap * Math.max(0, columnCount - 1)) / columnCount;
   const panel = createDocumentationFrame(title, width, 2, 12);
   setDocumentationFill(
     panel,
@@ -2746,6 +2752,21 @@ function addDocumentationDataPanel(
     ),
   );
 
+  const rowsGrid = figma.createFrame();
+  rowsGrid.name = `${title} rows`;
+  rowsGrid.layoutMode = "HORIZONTAL";
+  rowsGrid.layoutWrap = "WRAP";
+  rowsGrid.primaryAxisSizingMode = "FIXED";
+  rowsGrid.counterAxisSizingMode = "AUTO";
+  rowsGrid.primaryAxisAlignItems = "MIN";
+  rowsGrid.counterAxisAlignItems = "MIN";
+  rowsGrid.itemSpacing = rowGap;
+  rowsGrid.counterAxisSpacing = rowGap;
+  rowsGrid.resizeWithoutConstraints(rowsWidth, 20);
+  rowsGrid.fills = [];
+  panel.appendChild(rowsGrid);
+  rowsGrid.layoutSizingHorizontal = "FILL";
+
   for (const rowDefinition of rows) {
     const row = figma.createFrame();
     row.name = rowDefinition.name;
@@ -2759,18 +2780,19 @@ function addDocumentationDataPanel(
     row.paddingRight = 8;
     row.paddingBottom = 5;
     row.paddingLeft = 8;
-    row.resizeWithoutConstraints(width - 24, 20);
+    row.resizeWithoutConstraints(rowWidth, 20);
     setDocumentationFill(row, DOCUMENTATION_COLORS.card, "bg-card", variables);
     setDocumentationRadius(row, 4, "radius-control", variables);
-    panel.appendChild(row);
-    row.layoutSizingHorizontal = "FILL";
+    rowsGrid.appendChild(row);
+    row.layoutSizingHorizontal = columnCount === 1 ? "FILL" : "FIXED";
 
+    const nameWidth = columnCount === 1 ? 104 : 72;
     const name = createDocumentationText(
       rowDefinition.name,
       fonts.bodyMedium,
       8,
       10,
-      104,
+      nameWidth,
       DOCUMENTATION_COLORS.textStrong,
       "text-strong",
       variables,
@@ -2795,7 +2817,7 @@ function addDocumentationDataPanel(
       fonts.body,
       8,
       10,
-      Math.max(120, width - 260),
+      Math.max(40, rowWidth - nameWidth - 100),
       DOCUMENTATION_COLORS.textBody,
       "text-body",
       variables,
@@ -3074,6 +3096,33 @@ function buildComponentDocumentationCard(
   );
   previewColumn.appendChild(gallery);
   gallery.layoutSizingHorizontal = "FILL";
+  appendDocumentationText(
+    previewColumn,
+    createDocumentationText(
+      "Component reference",
+      fonts.heading,
+      14,
+      18,
+      DOCUMENTATION_PREVIEW_WIDTH,
+      DOCUMENTATION_COLORS.textStrong,
+      "text-strong",
+      variables,
+    ),
+  );
+  addDocumentationMetrics(
+    previewColumn,
+    component,
+    fonts,
+    variables,
+    DOCUMENTATION_PREVIEW_WIDTH,
+  );
+  addDocumentationGuidance(
+    previewColumn,
+    component.guidance,
+    fonts,
+    variables,
+    DOCUMENTATION_PREVIEW_WIDTH,
+  );
 
   const detailsColumn = createDocumentationFrame(
     "Details",
@@ -3083,33 +3132,6 @@ function buildComponentDocumentationCard(
   );
   detailsColumn.fills = [];
   body.appendChild(detailsColumn);
-  appendDocumentationText(
-    detailsColumn,
-    createDocumentationText(
-      "Component reference",
-      fonts.heading,
-      14,
-      18,
-      DOCUMENTATION_DETAILS_WIDTH,
-      DOCUMENTATION_COLORS.textStrong,
-      "text-strong",
-      variables,
-    ),
-  );
-  addDocumentationMetrics(
-    detailsColumn,
-    component,
-    fonts,
-    variables,
-    DOCUMENTATION_DETAILS_WIDTH,
-  );
-  addDocumentationGuidance(
-    detailsColumn,
-    component.guidance,
-    fonts,
-    variables,
-    DOCUMENTATION_DETAILS_WIDTH,
-  );
   addDocumentationDataPanel(
     detailsColumn,
     "Variant axes",
@@ -3162,6 +3184,7 @@ function buildComponentDocumentationCard(
     fonts,
     variables,
     DOCUMENTATION_DETAILS_WIDTH,
+    { columns: 3 },
   );
   addDocumentationDataPanel(
     detailsColumn,

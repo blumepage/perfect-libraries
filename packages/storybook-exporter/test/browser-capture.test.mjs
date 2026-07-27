@@ -211,6 +211,22 @@ test("preserves top-right overlays inside Auto Layout without adding them to flo
   assert.deepEqual(result.warnings, []);
 });
 
+test("preserves CSS auto margins as Figma Auto Layout fill sizing", async () => {
+  const result = await capture(`
+    <main data-figma-source-node="Pinned status" data-figma-source-root
+      style="box-sizing:border-box;display:flex;align-items:center;width:174px;height:60px;padding:12px">
+      <span style="display:inline-flex;width:30px;height:30px;background:#9172f8"></span>
+      <div style="display:flex;justify-content:flex-end;margin-left:auto;width:50px;height:25px">
+        <span style="width:22px;height:22px;background:#111"></span>
+      </div>
+    </main>
+  `, "Pinned status");
+
+  assert.equal(result.scene.children[1].layoutSizingHorizontal, "FILL");
+  assert.equal(result.scene.children[1].primaryAxisAlignItems, "MAX");
+  assert.deepEqual(result.warnings, []);
+});
+
 test("captures exactly one visible document-level portal source", async () => {
   const result = await capture(`
     <main data-figma-source-node="Dialog / Open"
