@@ -21,6 +21,30 @@ export function reconcileManagedSourceContainer<
   currentPage: TPage;
 }): SourceContainerReconciliation<TContainer>;
 
+export interface ManagedComponentCandidateLike {
+  type: string;
+}
+
+export function resolveManagedComponentCandidate<
+  TCandidate extends ManagedComponentCandidateLike,
+>(input: {
+  candidates: readonly TCandidate[];
+  entityId: string;
+}): {
+  component: TCandidate | undefined;
+  legacyInstances: TCandidate[];
+  inheritedInstances: TCandidate[];
+};
+
+export interface SharedPluginDataWriterLike {
+  setSharedPluginData(namespace: string, key: string, value: string): void;
+}
+
+export function clearManagedNodeIdentity(input: {
+  node: SharedPluginDataWriterLike;
+  namespace: string;
+}): void;
+
 export interface SourceRequest {
   sourceNode: string;
   variantId: string;

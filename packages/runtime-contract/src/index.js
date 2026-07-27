@@ -1,4 +1,10 @@
 const SOURCE_NODE_TYPES = new Set(["FRAME", "COMPONENT", "INSTANCE"]);
+const MANAGED_IDENTITY_KEYS = [
+  "libraryId",
+  "entityType",
+  "entityId",
+  "release",
+];
 const NUMERIC_BINDING_FIELDS = {
   "padding-top": ["paddingTop"],
   "padding-right": ["paddingRight"],
@@ -140,6 +146,57 @@ export function reconcileManagedSourceContainer({
     moved,
     duplicatesRemoved: duplicates.length,
   };
+}
+
+export function resolveManagedComponentCandidate({
+  candidates,
+  entityId,
+}) {
+  const components = candidates.filter(
+    (candidate) => candidate.type === "COMPONENT",
+  );
+  if (components.length > 1) {
+    throw new Error(
+      `Managed variant "${entityId}" has ${components.length} COMPONENT candidates.`,
+    );
+  }
+  if (components.length === 1) {
+    return {
+      component: components[0],
+      legacyInstances: [],
+      inheritedInstances: candidates.filter(
+        (candidate) => candidate.type === "INSTANCE",
+      ),
+    };
+  }
+  if (
+    candidates.length > 0 &&
+    candidates.every((candidate) => candidate.type === "INSTANCE")
+  ) {
+    return {
+      component: undefined,
+      legacyInstances: [...candidates],
+      inheritedInstances: [],
+    };
+  }
+  if (candidates.length > 0) {
+    throw new Error(
+      `Managed variant "${entityId}" is unexpectedly ${candidates
+        .map((candidate) => candidate.type)
+        .join(", ")}.`,
+    );
+  }
+  return {
+    component: undefined,
+    legacyInstances: [],
+    inheritedInstances: [],
+  };
+}
+
+export function clearManagedNodeIdentity({ node, namespace }) {
+  for (const key of MANAGED_IDENTITY_KEYS) {
+    node.setSharedPluginData(namespace, key, "");
+  }
 }
 
 export function resolveSourceNodes({

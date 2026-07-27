@@ -48,11 +48,13 @@ import {
 import {
   applySourceChildPlacement,
   applyNumericVariableBinding,
+  clearManagedNodeIdentity,
   configureFixedWidthAutoHeightText,
   enforceExactNodeSize,
   layoutManualVariantGrid,
   reconcileAndResolveManagedSources,
   reconcileManagedSourceContainer,
+  resolveManagedComponentCandidate,
   resolveSourceNodes,
 } from "@perfect-libraries/runtime-contract";
 
@@ -1564,29 +1566,45 @@ function syncComponentFrames(
     if (!source) {
       throw new Error(`Source node "${variant.sourceNode}" disappeared.`);
     }
-    const existing =
-      component.variants.length === 1
-        ? findManagedSceneNode(
-            manifest.library.id,
-            "component",
-            component.id,
-          )
-        : findManagedSceneNode(
-            manifest.library.id,
-            "variant",
-            variant.id,
-          );
+    const entityType =
+      component.variants.length === 1 ? "component" : "variant";
+    const entityId =
+      component.variants.length === 1 ? component.id : variant.id;
+    const managedCandidate = resolveManagedComponentCandidate({
+      candidates: findManagedSceneNodesByEntity(
+        manifest.library.id,
+        entityType,
+        entityId,
+      ),
+      entityId: variant.id,
+    });
+    for (const inheritedInstance of managedCandidate.inheritedInstances) {
+      if (inheritedInstance.type !== "INSTANCE") continue;
+      clearManagedNodeIdentity({
+        node: inheritedInstance,
+        namespace: PLUGIN_NAMESPACE,
+      });
+    }
     let target: ComponentNode;
 
-    if (existing) {
-      if (existing.type !== "COMPONENT") {
-        throw new Error(
-          `Managed variant "${variant.id}" is unexpectedly ${existing.type}.`,
-        );
-      }
-      target = existing;
+    if (managedCandidate.component?.type === "COMPONENT") {
+      target = managedCandidate.component;
       replaceComponentContents(target, source);
       counters.componentsUpdated += 1;
+    } else if (managedCandidate.legacyInstances.length > 0) {
+      for (const legacyInstance of managedCandidate.legacyInstances) {
+        if (legacyInstance.type !== "INSTANCE") continue;
+        clearManagedNodeIdentity({
+          node: legacyInstance,
+          namespace: PLUGIN_NAMESPACE,
+        });
+      }
+      target = createComponentFromSource(source);
+      counters.componentsCreated += 1;
+      createdVariantInThisComponent = true;
+      warnings.push(
+        `${component.name}: retired copied managed identity from ${managedCandidate.legacyInstances.length} legacy INSTANCE${managedCandidate.legacyInstances.length === 1 ? "" : "s"} for "${variant.id}", preserved ${managedCandidate.legacyInstances.length === 1 ? "it" : "them"} in place, and created a publishable COMPONENT.`,
+      );
     } else {
       target = createComponentFromSource(source);
       counters.componentsCreated += 1;
@@ -1956,6 +1974,10 @@ function syncNestedInstances(
         marker.getSharedPluginData(PLUGIN_NAMESPACE, "nestedComponent") ===
           nested.component
       ) {
+        clearManagedNodeIdentity({
+          node: marker,
+          namespace: PLUGIN_NAMESPACE,
+        });
         continue;
       }
       const target = resolveNestedTarget(nested, runtimes);
@@ -2024,6 +2046,10 @@ function replaceWithInstance(
     "layoutSizingVertical" in marker ? marker.layoutSizingVertical : "FIXED";
 
   const instance = target.createInstance();
+  clearManagedNodeIdentity({
+    node: instance,
+    namespace: PLUGIN_NAMESPACE,
+  });
   instance.name = marker.name;
   parent.insertChild(index, instance);
   marker.remove();
@@ -2833,6 +2859,10 @@ function buildCombinationGallery(
     const sourceWidth = variant.width;
     const sourceHeight = variant.height;
     const instance = variant.createInstance();
+    clearManagedNodeIdentity({
+      node: instance,
+      namespace: PLUGIN_NAMESPACE,
+    });
     enforceExactNodeSize({
       node: instance,
       width: sourceWidth,

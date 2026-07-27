@@ -4,11 +4,13 @@ import test from "node:test";
 import {
   applySourceChildPlacement,
   applyNumericVariableBinding,
+  clearManagedNodeIdentity,
   configureFixedWidthAutoHeightText,
   enforceExactNodeSize,
   layoutManualVariantGrid,
   reconcileAndResolveManagedSources,
   reconcileManagedSourceContainer,
+  resolveManagedComponentCandidate,
   resolveSourceNodes,
 } from "../src/index.js";
 
@@ -130,6 +132,75 @@ test("prefers the current-page source container and removes duplicates", () => {
   assert.equal(result.duplicatesRemoved, 1);
   assert.equal(legacy.removed, true);
   assert.deepEqual(sourcePage.children, [current]);
+});
+
+test("managed component lookup prefers the real component over inherited instance identity", () => {
+  const component = { id: "component", type: "COMPONENT" };
+  const documentationInstance = { id: "preview", type: "INSTANCE" };
+
+  const result = resolveManagedComponentCandidate({
+    candidates: [documentationInstance, component],
+    entityId: "alert-danger",
+  });
+
+  assert.equal(result.component, component);
+  assert.deepEqual(result.legacyInstances, []);
+  assert.deepEqual(result.inheritedInstances, [documentationInstance]);
+});
+
+test("managed component lookup exposes legacy instances for safe identity retirement", () => {
+  const firstLegacyInstance = { id: "legacy-1", type: "INSTANCE" };
+  const secondLegacyInstance = { id: "legacy-2", type: "INSTANCE" };
+
+  const result = resolveManagedComponentCandidate({
+    candidates: [firstLegacyInstance, secondLegacyInstance],
+    entityId: "alert-danger",
+  });
+
+  assert.equal(result.component, undefined);
+  assert.deepEqual(result.legacyInstances, [
+    firstLegacyInstance,
+    secondLegacyInstance,
+  ]);
+  assert.deepEqual(result.inheritedInstances, []);
+});
+
+test("managed component lookup rejects ambiguous component output", () => {
+  assert.throws(
+    () =>
+      resolveManagedComponentCandidate({
+        candidates: [
+          { id: "first", type: "COMPONENT" },
+          { id: "second", type: "COMPONENT" },
+        ],
+        entityId: "alert-danger",
+      }),
+    /has 2 COMPONENT candidates/,
+  );
+});
+
+test("copied managed identity is cleared without removing the instance", () => {
+  const writes = [];
+  let removed = false;
+  clearManagedNodeIdentity({
+    namespace: "perfectLibraries",
+    node: {
+      setSharedPluginData(namespace, key, value) {
+        writes.push([namespace, key, value]);
+      },
+      remove() {
+        removed = true;
+      },
+    },
+  });
+
+  assert.deepEqual(writes, [
+    ["perfectLibraries", "libraryId", ""],
+    ["perfectLibraries", "entityType", ""],
+    ["perfectLibraries", "entityId", ""],
+    ["perfectLibraries", "release", ""],
+  ]);
+  assert.equal(removed, false);
 });
 
 test("resolves exact managed sources without current-page errors", () => {
