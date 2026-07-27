@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import test from "node:test";
 
 import {
+  applyNumericVariableBinding,
   reconcileAndResolveManagedSources,
   reconcileManagedSourceContainer,
   resolveSourceNodes,
@@ -140,4 +141,22 @@ test("the importer operation moves a stale container before resolving its source
   assert.deepEqual(result.errors, []);
   assert.deepEqual(legacyPage.children, []);
   assert.deepEqual(sourcePage.children, [container]);
+});
+
+test("a radius variable binds every independent component corner", () => {
+  const bound = [];
+  const fields = applyNumericVariableBinding({
+    nodeName: "Style=Accent, Size=Large",
+    nodeType: "COMPONENT",
+    property: "radius",
+    bind: (field) => bound.push(field),
+  });
+
+  assert.deepEqual(fields, [
+    "topLeftRadius",
+    "topRightRadius",
+    "bottomRightRadius",
+    "bottomLeftRadius",
+  ]);
+  assert.deepEqual(bound, fields);
 });

@@ -1,4 +1,42 @@
 const SOURCE_NODE_TYPES = new Set(["FRAME", "COMPONENT", "INSTANCE"]);
+const NUMERIC_BINDING_FIELDS = {
+  "padding-top": ["paddingTop"],
+  "padding-right": ["paddingRight"],
+  "padding-bottom": ["paddingBottom"],
+  "padding-left": ["paddingLeft"],
+  gap: ["itemSpacing"],
+  radius: [
+    "topLeftRadius",
+    "topRightRadius",
+    "bottomRightRadius",
+    "bottomLeftRadius",
+  ],
+  "radius-top-left": ["topLeftRadius"],
+  "radius-top-right": ["topRightRadius"],
+  "radius-bottom-right": ["bottomRightRadius"],
+  "radius-bottom-left": ["bottomLeftRadius"],
+  "stroke-weight": ["strokeWeight"],
+  opacity: ["opacity"],
+  "font-size": ["fontSize"],
+  "line-height": ["lineHeight"],
+  "letter-spacing": ["letterSpacing"],
+};
+
+export function applyNumericVariableBinding({
+  nodeName,
+  nodeType,
+  property,
+  bind,
+}) {
+  const fields = NUMERIC_BINDING_FIELDS[property];
+  if (!fields || typeof bind !== "function") {
+    throw new Error(
+      `Property "${property}" cannot be bound on layer "${nodeName}" (${nodeType}).`,
+    );
+  }
+  for (const field of fields) bind(field);
+  return fields;
+}
 
 export function reconcileManagedSourceContainer({
   candidates,

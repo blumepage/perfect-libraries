@@ -46,6 +46,7 @@ import {
   type DocumentationGroup,
 } from "./documentation-plan";
 import {
+  applyNumericVariableBinding,
   reconcileAndResolveManagedSources,
   reconcileManagedSourceContainer,
   resolveSourceNodes,
@@ -1748,53 +1749,15 @@ function bindVariable(
     return;
   }
 
-  const field = bindingField(property);
-  if (!field || !("setBoundVariable" in node)) {
-    throw new Error(
-      `Property "${property}" cannot be bound on layer "${node.name}" (${node.type}).`,
-    );
-  }
-
-  if (property === "radius") {
-    for (const radiusField of [
-      "topLeftRadius",
-      "topRightRadius",
-      "bottomRightRadius",
-      "bottomLeftRadius",
-    ] as const) {
-      node.setBoundVariable(radiusField, variable);
-    }
-    return;
-  }
-
-  node.setBoundVariable(field, variable);
-}
-
-function bindingField(
-  property: BindingProperty,
-): VariableBindableNodeField | VariableBindableTextField | undefined {
-  const fields: Partial<
-    Record<
-      BindingProperty,
-      VariableBindableNodeField | VariableBindableTextField
-    >
-  > = {
-    "padding-top": "paddingTop",
-    "padding-right": "paddingRight",
-    "padding-bottom": "paddingBottom",
-    "padding-left": "paddingLeft",
-    gap: "itemSpacing",
-    "radius-top-left": "topLeftRadius",
-    "radius-top-right": "topRightRadius",
-    "radius-bottom-right": "bottomRightRadius",
-    "radius-bottom-left": "bottomLeftRadius",
-    "stroke-weight": "strokeWeight",
-    opacity: "opacity",
-    "font-size": "fontSize",
-    "line-height": "lineHeight",
-    "letter-spacing": "letterSpacing",
-  };
-  return fields[property];
+  applyNumericVariableBinding({
+    nodeName: node.name,
+    nodeType: node.type,
+    property,
+    bind:
+      "setBoundVariable" in node
+        ? (field) => node.setBoundVariable(field, variable)
+        : undefined,
+  });
 }
 
 function bindPaint(

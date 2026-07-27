@@ -38,6 +38,46 @@ export interface SourceNodeLike {
   type: string;
 }
 
+export type NumericBindingProperty =
+  | "padding-top"
+  | "padding-right"
+  | "padding-bottom"
+  | "padding-left"
+  | "gap"
+  | "radius"
+  | "radius-top-left"
+  | "radius-top-right"
+  | "radius-bottom-right"
+  | "radius-bottom-left"
+  | "stroke-weight"
+  | "opacity"
+  | "font-size"
+  | "line-height"
+  | "letter-spacing";
+
+export type NumericBindingField =
+  | "paddingTop"
+  | "paddingRight"
+  | "paddingBottom"
+  | "paddingLeft"
+  | "itemSpacing"
+  | "topLeftRadius"
+  | "topRightRadius"
+  | "bottomRightRadius"
+  | "bottomLeftRadius"
+  | "strokeWeight"
+  | "opacity"
+  | "fontSize"
+  | "lineHeight"
+  | "letterSpacing";
+
+export function applyNumericVariableBinding(input: {
+  nodeName: string;
+  nodeType: string;
+  property: NumericBindingProperty;
+  bind?: (field: NumericBindingField) => void;
+}): readonly NumericBindingField[];
+
 export function resolveSourceNodes<TNode extends SourceNodeLike>(input: {
   requests: readonly SourceRequest[];
   candidates: readonly TNode[];
