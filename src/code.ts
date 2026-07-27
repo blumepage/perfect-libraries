@@ -2456,8 +2456,8 @@ function addDocumentationGuidance(
   const panel = createDocumentationFrame(
     "How to work with this component",
     width,
-    14,
-    28,
+    10,
+    20,
   );
   setDocumentationFill(
     panel,
@@ -2480,9 +2480,9 @@ function addDocumentationGuidance(
     createDocumentationText(
       "How to work with this component",
       fonts.heading,
-      22,
-      30,
-      width - 56,
+      18,
+      24,
+      width - 40,
       DOCUMENTATION_COLORS.textStrong,
       "text-strong",
       variables,
@@ -2494,9 +2494,9 @@ function addDocumentationGuidance(
       createDocumentationText(
         `•  ${line}`,
         fonts.body,
-        15,
-        23,
-        width - 56,
+        12,
+        18,
+        width - 40,
         DOCUMENTATION_COLORS.textBody,
         "text-body",
         variables,
@@ -2546,10 +2546,11 @@ function createDocumentationPill(
 }
 
 function addDocumentationMetrics(
-  card: FrameNode,
+  parent: FrameNode,
   component: DocumentationComponent,
   fonts: DocumentationFonts,
   variables: Map<string, Variable>,
+  width = DOCUMENTATION_CONTENT_WIDTH,
 ): void {
   const row = figma.createFrame();
   row.name = "Component summary";
@@ -2561,7 +2562,7 @@ function addDocumentationMetrics(
   row.counterAxisAlignItems = "CENTER";
   row.itemSpacing = 10;
   row.counterAxisSpacing = 10;
-  row.resizeWithoutConstraints(DOCUMENTATION_CONTENT_WIDTH, 40);
+  row.resizeWithoutConstraints(width, 40);
   row.fills = [];
   for (const label of [
     component.group,
@@ -2571,7 +2572,7 @@ function addDocumentationMetrics(
   ]) {
     row.appendChild(createDocumentationPill(label, fonts, variables));
   }
-  card.appendChild(row);
+  parent.appendChild(row);
   row.layoutSizingHorizontal = "FILL";
 }
 
@@ -2688,7 +2689,7 @@ function addDocumentationDataPanel(
   width: number,
 ): void {
   if (rows.length === 0) return;
-  const panel = createDocumentationFrame(title, width, 12, 20);
+  const panel = createDocumentationFrame(title, width, 10, 16);
   setDocumentationFill(
     panel,
     DOCUMENTATION_COLORS.inner,
@@ -2710,9 +2711,9 @@ function addDocumentationDataPanel(
     createDocumentationText(
       title,
       fonts.heading,
-      20,
-      28,
-      width - 40,
+      16,
+      22,
+      width - 32,
       DOCUMENTATION_COLORS.textStrong,
       "text-strong",
       variables,
@@ -2722,9 +2723,9 @@ function addDocumentationDataPanel(
   for (const rowDefinition of rows) {
     const row = createDocumentationFrame(
       rowDefinition.name,
-      width - 40,
-      8,
-      14,
+      width - 32,
+      6,
+      12,
     );
     setDocumentationFill(row, DOCUMENTATION_COLORS.card, "bg-card", variables);
     setDocumentationRadius(row, 8, "radius-control", variables);
@@ -2739,7 +2740,7 @@ function addDocumentationDataPanel(
     heading.primaryAxisAlignItems = "SPACE_BETWEEN";
     heading.counterAxisAlignItems = "CENTER";
     heading.itemSpacing = 12;
-    heading.resizeWithoutConstraints(width - 68, 24);
+    heading.resizeWithoutConstraints(width - 56, 22);
     heading.fills = [];
     row.appendChild(heading);
     heading.layoutSizingHorizontal = "FILL";
@@ -2747,8 +2748,8 @@ function addDocumentationDataPanel(
     const name = createDocumentationText(
       rowDefinition.name,
       fonts.bodyMedium,
-      14,
-      20,
+      12,
+      18,
       width - 220,
       DOCUMENTATION_COLORS.textStrong,
       "text-strong",
@@ -2770,9 +2771,9 @@ function addDocumentationDataPanel(
         createDocumentationText(
           rowDefinition.details,
           fonts.body,
-          12,
-          18,
-          width - 68,
+          11,
+          16,
+          width - 56,
           DOCUMENTATION_COLORS.textBody,
           "text-body",
           variables,
@@ -2785,9 +2786,9 @@ function addDocumentationDataPanel(
         createDocumentationText(
           rowDefinition.description,
           fonts.body,
-          12,
-          18,
-          width - 68,
+          11,
+          16,
+          width - 56,
           DOCUMENTATION_COLORS.textMuted,
           "text-muted",
           variables,
@@ -2975,50 +2976,6 @@ function buildComponentDocumentationCard(
     component.id,
   );
 
-  appendDocumentationText(
-    card,
-    createDocumentationText(
-      component.name,
-      fonts.heading,
-      52,
-      60,
-      DOCUMENTATION_CONTENT_WIDTH,
-      DOCUMENTATION_COLORS.textStrong,
-      "text-strong",
-      variables,
-    ),
-  );
-  if (component.description) {
-    appendDocumentationText(
-      card,
-      createDocumentationText(
-        component.description,
-        fonts.body,
-        19,
-        29,
-        DOCUMENTATION_CONTENT_WIDTH,
-        DOCUMENTATION_COLORS.textBody,
-        "text-body",
-        variables,
-      ),
-    );
-  }
-  addDocumentationMetrics(card, component, fonts, variables);
-  if (component.documentationUrl) {
-    const link = createDocumentationText(
-      "Open this component in Storybook ↗",
-      fonts.bodyMedium,
-      14,
-      20,
-      DOCUMENTATION_CONTENT_WIDTH,
-      DOCUMENTATION_COLORS.accent,
-      "accent-bluebell",
-      variables,
-    );
-    link.hyperlink = { type: "URL", value: component.documentationUrl };
-    appendDocumentationText(card, link);
-  }
-
   const body = figma.createFrame();
   body.name = "Preview and component details";
   body.layoutMode = "HORIZONTAL";
@@ -3043,10 +3000,10 @@ function buildComponentDocumentationCard(
   appendDocumentationText(
     previewColumn,
     createDocumentationText(
-      `Preview · ${component.combinations.length} supported combination${component.combinations.length === 1 ? "" : "s"}`,
+      component.name,
       fonts.heading,
-      24,
-      32,
+      72,
+      80,
       DOCUMENTATION_PREVIEW_WIDTH,
       DOCUMENTATION_COLORS.textStrong,
       "text-strong",
@@ -3056,13 +3013,41 @@ function buildComponentDocumentationCard(
   appendDocumentationText(
     previewColumn,
     createDocumentationText(
-      "Every preview is a live library instance at its exact Storybook dimensions.",
+      component.description ||
+        "Reusable component from the shared Blume UI system.",
       fonts.body,
-      14,
-      21,
+      28,
+      40,
       DOCUMENTATION_PREVIEW_WIDTH,
-      DOCUMENTATION_COLORS.textMuted,
-      "text-muted",
+      DOCUMENTATION_COLORS.textBody,
+      "text-body",
+      variables,
+    ),
+  );
+  if (component.documentationUrl) {
+    const link = createDocumentationText(
+      "Open this component in Storybook ↗",
+      fonts.bodyMedium,
+      13,
+      18,
+      DOCUMENTATION_PREVIEW_WIDTH,
+      DOCUMENTATION_COLORS.accent,
+      "accent-bluebell",
+      variables,
+    );
+    link.hyperlink = { type: "URL", value: component.documentationUrl };
+    appendDocumentationText(previewColumn, link);
+  }
+  appendDocumentationText(
+    previewColumn,
+    createDocumentationText(
+      `Live previews · ${component.combinations.length} supported combination${component.combinations.length === 1 ? "" : "s"}`,
+      fonts.heading,
+      18,
+      24,
+      DOCUMENTATION_PREVIEW_WIDTH,
+      DOCUMENTATION_COLORS.textStrong,
+      "text-strong",
       variables,
     ),
   );
@@ -3085,6 +3070,26 @@ function buildComponentDocumentationCard(
   );
   detailsColumn.fills = [];
   body.appendChild(detailsColumn);
+  appendDocumentationText(
+    detailsColumn,
+    createDocumentationText(
+      "Component reference",
+      fonts.heading,
+      18,
+      24,
+      DOCUMENTATION_DETAILS_WIDTH,
+      DOCUMENTATION_COLORS.textStrong,
+      "text-strong",
+      variables,
+    ),
+  );
+  addDocumentationMetrics(
+    detailsColumn,
+    component,
+    fonts,
+    variables,
+    DOCUMENTATION_DETAILS_WIDTH,
+  );
   addDocumentationGuidance(
     detailsColumn,
     component.guidance,
