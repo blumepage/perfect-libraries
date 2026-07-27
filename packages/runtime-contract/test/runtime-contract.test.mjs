@@ -4,11 +4,62 @@ import test from "node:test";
 import {
   applySourceChildPlacement,
   applyNumericVariableBinding,
+  configureFixedWidthAutoHeightText,
+  enforceExactNodeSize,
   layoutManualVariantGrid,
   reconcileAndResolveManagedSources,
   reconcileManagedSourceContainer,
   resolveSourceNodes,
 } from "../src/index.js";
+
+test("fixed-width text establishes its width before enabling auto height", () => {
+  const operations = [];
+  const text = {};
+  Object.defineProperty(text, "textAutoResize", {
+    get() {
+      return this._textAutoResize;
+    },
+    set(value) {
+      this._textAutoResize = value;
+      operations.push(["textAutoResize", value]);
+    },
+  });
+  text.resize = (width, height) => {
+    operations.push(["resize", width, height]);
+  };
+
+  configureFixedWidthAutoHeightText({
+    text,
+    width: 420,
+    minimumHeight: 21,
+  });
+
+  assert.deepEqual(operations, [
+    ["textAutoResize", "NONE"],
+    ["resize", 420, 21],
+    ["textAutoResize", "HEIGHT"],
+  ]);
+});
+
+test("exact node sizing resets inherited fill behavior before resizing", () => {
+  const node = {
+    layoutSizingHorizontal: "FILL",
+    layoutSizingVertical: "HUG",
+    width: 18,
+    height: 54,
+    resizeWithoutConstraints(width, height) {
+      this.width = width;
+      this.height = height;
+    },
+  };
+
+  enforceExactNodeSize({ node, width: 28, height: 28 });
+
+  assert.equal(node.layoutSizingHorizontal, "FIXED");
+  assert.equal(node.layoutSizingVertical, "FIXED");
+  assert.equal(node.width, 28);
+  assert.equal(node.height, 28);
+});
 
 function createPage(name) {
   return {

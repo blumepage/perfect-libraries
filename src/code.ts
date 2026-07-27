@@ -48,6 +48,8 @@ import {
 import {
   applySourceChildPlacement,
   applyNumericVariableBinding,
+  configureFixedWidthAutoHeightText,
+  enforceExactNodeSize,
   layoutManualVariantGrid,
   reconcileAndResolveManagedSources,
   reconcileManagedSourceContainer,
@@ -650,6 +652,12 @@ async function apply(
       }
     }
 
+    for (const component of orderedComponents) {
+      const runtime = componentRuntime.get(component.id);
+      if (!runtime) continue;
+      reassertRuntimeGeometry(runtime, sourceLookup.nodes);
+    }
+
     const coverPage = await syncDocumentationPages(
       manifest,
       componentRuntime,
@@ -990,6 +998,11 @@ async function createSourceSceneNode(
     frame.primaryAxisSizingMode = source.primaryAxisSizingMode ?? "FIXED";
     frame.counterAxisSizingMode = source.counterAxisSizingMode ?? "FIXED";
   }
+  enforceExactNodeSize({
+    node: frame,
+    width: Math.max(1, source.width),
+    height: Math.max(1, source.height),
+  });
   return frame;
 }
 
@@ -1584,6 +1597,11 @@ function syncComponentFrames(
     target.description = component.description ?? "";
     tagManaged(target, manifest, "variant", variant.id);
     applyBindings(target, variant.bindings ?? [], variables, counters);
+    enforceExactNodeSize({
+      node: target,
+      width: source.width,
+      height: source.height,
+    });
     variants.set(variant.id, target);
   }
 
@@ -1649,6 +1667,25 @@ function syncComponentFrames(
   return { definition: component, variants, owner };
 }
 
+function reassertRuntimeGeometry(
+  runtime: ComponentRuntime,
+  sourceNodes: Map<string, SceneNode>,
+): void {
+  for (const definition of runtime.definition.variants) {
+    const variant = runtime.variants.get(definition.id);
+    const source = sourceNodes.get(definition.sourceNode);
+    if (!variant || !source) continue;
+    enforceExactNodeSize({
+      node: variant,
+      width: source.width,
+      height: source.height,
+    });
+  }
+  if (runtime.owner.type === "COMPONENT_SET") {
+    layoutVariantGrid(runtime.owner, runtime.definition, sourceNodes);
+  }
+}
+
 function createComponentFromSource(source: SceneNode): ComponentNode {
   const clone = source.clone();
   if (clone.type === "COMPONENT") return clone;
@@ -1679,6 +1716,11 @@ function replaceComponentContents(
   copyFrameProperties(target, sourceFrame);
   for (const child of [...target.children]) child.remove();
   for (const child of [...sourceFrame.children]) target.appendChild(child);
+  enforceExactNodeSize({
+    node: target,
+    width: sourceFrame.width,
+    height: sourceFrame.height,
+  });
   sourceFrame.remove();
 }
 
@@ -2141,6 +2183,12 @@ const DOCUMENTATION_CARD_WIDTH = 1440;
 const DOCUMENTATION_CARD_PADDING = 56;
 const DOCUMENTATION_CONTENT_WIDTH =
   DOCUMENTATION_CARD_WIDTH - DOCUMENTATION_CARD_PADDING * 2;
+const DOCUMENTATION_COLUMN_GAP = 32;
+const DOCUMENTATION_PREVIEW_WIDTH = 800;
+const DOCUMENTATION_DETAILS_WIDTH =
+  DOCUMENTATION_CONTENT_WIDTH -
+  DOCUMENTATION_PREVIEW_WIDTH -
+  DOCUMENTATION_COLUMN_GAP;
 
 function findManagedPage(
   libraryId: string,
@@ -2314,8 +2362,11 @@ function createDocumentationText(
   text.characters = characters || " ";
   text.fontSize = fontSize;
   text.lineHeight = { unit: "PIXELS", value: lineHeight };
-  text.textAutoResize = "HEIGHT";
-  text.resize(width, lineHeight);
+  configureFixedWidthAutoHeightText({
+    text,
+    width,
+    minimumHeight: lineHeight,
+  });
   setDocumentationFill(text, fallback, tokenId, variables);
   return text;
 }
@@ -2399,11 +2450,12 @@ function addDocumentationGuidance(
   lines: string[],
   fonts: DocumentationFonts,
   variables: Map<string, Variable>,
+  width = DOCUMENTATION_CONTENT_WIDTH,
 ): void {
   if (lines.length === 0) return;
   const panel = createDocumentationFrame(
     "How to work with this component",
-    DOCUMENTATION_CONTENT_WIDTH,
+    width,
     14,
     28,
   );
@@ -2430,7 +2482,7 @@ function addDocumentationGuidance(
       fonts.heading,
       22,
       30,
-      DOCUMENTATION_CONTENT_WIDTH - 56,
+      width - 56,
       DOCUMENTATION_COLORS.textStrong,
       "text-strong",
       variables,
@@ -2444,7 +2496,7 @@ function addDocumentationGuidance(
         fonts.body,
         15,
         23,
-        DOCUMENTATION_CONTENT_WIDTH - 56,
+        width - 56,
         DOCUMENTATION_COLORS.textBody,
         "text-body",
         variables,
@@ -2556,28 +2608,209 @@ function controlDocumentationLines(
   });
 }
 
+interface DocumentationDataRow {
+  name: string;
+  type: string;
+  details?: string;
+  description?: string;
+}
+
+function documentationBadgeColors(type: string): {
+  background: string;
+  text: string;
+} {
+  const normalized = type.toLowerCase();
+  if (normalized === "action" || normalized === "event") {
+    return { background: "#f7dfd7", text: "#8d3e2b" };
+  }
+  if (normalized === "boolean") {
+    return { background: "#dfeee2", text: "#356744" };
+  }
+  if (normalized === "select" || normalized === "radio") {
+    return { background: "#e8e1f8", text: "#5945a6" };
+  }
+  if (normalized === "number") {
+    return { background: "#dcebf3", text: "#315f77" };
+  }
+  if (normalized === "variant") {
+    return { background: "#f3dfb9", text: "#76551d" };
+  }
+  if (normalized === "instance swap" || normalized === "instance_swap") {
+    return { background: "#e4e6f4", text: "#48528a" };
+  }
+  if (normalized === "dependency") {
+    return { background: "#e7e0d3", text: "#675b49" };
+  }
+  return { background: "#e8e2d6", text: "#62584a" };
+}
+
+function createDocumentationTypeBadge(
+  label: string,
+  fonts: DocumentationFonts,
+  variables: Map<string, Variable>,
+): FrameNode {
+  const colors = documentationBadgeColors(label);
+  const badge = figma.createFrame();
+  badge.name = `${label} type`;
+  badge.layoutMode = "HORIZONTAL";
+  badge.primaryAxisSizingMode = "AUTO";
+  badge.counterAxisSizingMode = "AUTO";
+  badge.primaryAxisAlignItems = "CENTER";
+  badge.counterAxisAlignItems = "CENTER";
+  badge.paddingTop = 5;
+  badge.paddingRight = 9;
+  badge.paddingBottom = 5;
+  badge.paddingLeft = 9;
+  badge.cornerRadius = 999;
+  badge.fills = [documentationPaint(colors.background)];
+  const text = createDocumentationText(
+    label.toUpperCase().replace("_", " "),
+    fonts.bodyMedium,
+    10,
+    14,
+    180,
+    colors.text,
+    "__documentation-type-badge",
+    variables,
+  );
+  text.textAutoResize = "WIDTH_AND_HEIGHT";
+  badge.appendChild(text);
+  text.layoutSizingHorizontal = "HUG";
+  return badge;
+}
+
+function addDocumentationDataPanel(
+  parent: FrameNode,
+  title: string,
+  rows: DocumentationDataRow[],
+  fonts: DocumentationFonts,
+  variables: Map<string, Variable>,
+  width: number,
+): void {
+  if (rows.length === 0) return;
+  const panel = createDocumentationFrame(title, width, 12, 20);
+  setDocumentationFill(
+    panel,
+    DOCUMENTATION_COLORS.inner,
+    "bg-inner",
+    variables,
+  );
+  setDocumentationStroke(
+    panel,
+    DOCUMENTATION_COLORS.borderSubtle,
+    "border-subtle",
+    variables,
+  );
+  panel.strokeWeight = 1;
+  setDocumentationRadius(panel, 14, "radius-card", variables);
+  parent.appendChild(panel);
+  panel.layoutSizingHorizontal = "FILL";
+  appendDocumentationText(
+    panel,
+    createDocumentationText(
+      title,
+      fonts.heading,
+      20,
+      28,
+      width - 40,
+      DOCUMENTATION_COLORS.textStrong,
+      "text-strong",
+      variables,
+    ),
+  );
+
+  for (const rowDefinition of rows) {
+    const row = createDocumentationFrame(
+      rowDefinition.name,
+      width - 40,
+      8,
+      14,
+    );
+    setDocumentationFill(row, DOCUMENTATION_COLORS.card, "bg-card", variables);
+    setDocumentationRadius(row, 8, "radius-control", variables);
+    panel.appendChild(row);
+    row.layoutSizingHorizontal = "FILL";
+
+    const heading = figma.createFrame();
+    heading.name = `${rowDefinition.name} heading`;
+    heading.layoutMode = "HORIZONTAL";
+    heading.primaryAxisSizingMode = "FIXED";
+    heading.counterAxisSizingMode = "AUTO";
+    heading.primaryAxisAlignItems = "SPACE_BETWEEN";
+    heading.counterAxisAlignItems = "CENTER";
+    heading.itemSpacing = 12;
+    heading.resizeWithoutConstraints(width - 68, 24);
+    heading.fills = [];
+    row.appendChild(heading);
+    heading.layoutSizingHorizontal = "FILL";
+
+    const name = createDocumentationText(
+      rowDefinition.name,
+      fonts.bodyMedium,
+      14,
+      20,
+      width - 220,
+      DOCUMENTATION_COLORS.textStrong,
+      "text-strong",
+      variables,
+    );
+    heading.appendChild(name);
+    name.layoutSizingHorizontal = "FILL";
+    heading.appendChild(
+      createDocumentationTypeBadge(
+        rowDefinition.type,
+        fonts,
+        variables,
+      ),
+    );
+
+    if (rowDefinition.details) {
+      appendDocumentationText(
+        row,
+        createDocumentationText(
+          rowDefinition.details,
+          fonts.body,
+          12,
+          18,
+          width - 68,
+          DOCUMENTATION_COLORS.textBody,
+          "text-body",
+          variables,
+        ),
+      );
+    }
+    if (rowDefinition.description) {
+      appendDocumentationText(
+        row,
+        createDocumentationText(
+          rowDefinition.description,
+          fonts.body,
+          12,
+          18,
+          width - 68,
+          DOCUMENTATION_COLORS.textMuted,
+          "text-muted",
+          variables,
+        ),
+      );
+    }
+  }
+}
+
 function buildCombinationGallery(
   manifest: PerfectLibrariesManifest,
   component: DocumentationComponent,
   runtime: ComponentRuntime,
   fonts: DocumentationFonts,
   variables: Map<string, Variable>,
+  width: number,
 ): FrameNode {
-  const gallery = figma.createFrame();
-  gallery.name = "Supported combinations";
-  gallery.layoutMode = "HORIZONTAL";
-  gallery.layoutWrap = "WRAP";
-  gallery.primaryAxisSizingMode = "FIXED";
-  gallery.counterAxisSizingMode = "AUTO";
-  gallery.primaryAxisAlignItems = "MIN";
-  gallery.counterAxisAlignItems = "MIN";
-  gallery.itemSpacing = 20;
-  gallery.counterAxisSpacing = 20;
-  gallery.paddingTop = 32;
-  gallery.paddingRight = 32;
-  gallery.paddingBottom = 32;
-  gallery.paddingLeft = 32;
-  gallery.resizeWithoutConstraints(DOCUMENTATION_CONTENT_WIDTH, 100);
+  const gallery = createDocumentationFrame(
+    "Supported combinations",
+    width,
+    16,
+    24,
+  );
   setDocumentationFill(
     gallery,
     DOCUMENTATION_COLORS.inner,
@@ -2596,17 +2829,26 @@ function buildCombinationGallery(
   for (const combination of component.combinations) {
     const variant = runtime.variants.get(combination.variantId);
     if (!variant) continue;
+    const sourceWidth = variant.width;
+    const sourceHeight = variant.height;
     const instance = variant.createInstance();
-    const tileWidth = Math.max(
-      300,
-      Math.min(DOCUMENTATION_CONTENT_WIDTH - 64, instance.width + 72),
-    );
+    enforceExactNodeSize({
+      node: instance,
+      width: sourceWidth,
+      height: sourceHeight,
+    });
+    const tileWidth = width - 48;
     const tile = createDocumentationFrame(
       combination.label,
       tileWidth,
-      14,
+      20,
       20,
     );
+    tile.layoutMode = "HORIZONTAL";
+    tile.primaryAxisSizingMode = "FIXED";
+    tile.counterAxisSizingMode = "AUTO";
+    tile.primaryAxisAlignItems = "MIN";
+    tile.counterAxisAlignItems = "CENTER";
     setDocumentationFill(
       tile,
       DOCUMENTATION_COLORS.card,
@@ -2614,27 +2856,35 @@ function buildCombinationGallery(
       variables,
     );
     setDocumentationRadius(tile, 8, "radius-control", variables);
+    const copy = createDocumentationFrame(
+      `${combination.label} description`,
+      220,
+      10,
+      0,
+    );
+    copy.fills = [];
+    tile.appendChild(copy);
     appendDocumentationText(
-      tile,
+      copy,
       createDocumentationText(
         combination.label,
         fonts.heading,
         17,
         23,
-        tileWidth - 40,
+        220,
         DOCUMENTATION_COLORS.textStrong,
         "text-strong",
         variables,
       ),
     );
     appendDocumentationText(
-      tile,
+      copy,
       createDocumentationText(
         combination.explanation,
         fonts.body,
         12,
         18,
-        tileWidth - 40,
+        220,
         DOCUMENTATION_COLORS.textMuted,
         "text-muted",
         variables,
@@ -2647,9 +2897,10 @@ function buildCombinationGallery(
     stage.counterAxisSizingMode = "FIXED";
     stage.primaryAxisAlignItems = "CENTER";
     stage.counterAxisAlignItems = "CENTER";
+    const stageWidth = tileWidth - 40 - 220 - 20;
     stage.resizeWithoutConstraints(
-      tileWidth - 40,
-      Math.max(112, instance.height + 48),
+      stageWidth,
+      Math.max(112, sourceHeight + 48),
     );
     setDocumentationFill(
       stage,
@@ -2666,9 +2917,14 @@ function buildCombinationGallery(
     stage.strokeWeight = 1;
     setDocumentationRadius(stage, 10, "radius-control", variables);
     stage.appendChild(instance);
+    enforceExactNodeSize({
+      node: instance,
+      width: sourceWidth,
+      height: sourceHeight,
+    });
     tile.appendChild(stage);
-    stage.layoutSizingHorizontal = "FILL";
     gallery.appendChild(tile);
+    tile.layoutSizingHorizontal = "FILL";
     tagManaged(
       tile as ManagedSceneNode,
       manifest,
@@ -2763,48 +3019,52 @@ function buildComponentDocumentationCard(
     appendDocumentationText(card, link);
   }
 
-  addDocumentationGuidance(card, component.guidance, fonts, variables);
-  addDocumentationSection(
-    card,
-    "Variant axes",
-    component.axes.map((axis) => `${axis.name} · ${axis.values.join(" · ")}`),
-    fonts,
-    variables,
+  const body = figma.createFrame();
+  body.name = "Preview and component details";
+  body.layoutMode = "HORIZONTAL";
+  body.primaryAxisSizingMode = "FIXED";
+  body.counterAxisSizingMode = "AUTO";
+  body.primaryAxisAlignItems = "MIN";
+  body.counterAxisAlignItems = "MIN";
+  body.itemSpacing = DOCUMENTATION_COLUMN_GAP;
+  body.resizeWithoutConstraints(DOCUMENTATION_CONTENT_WIDTH, 100);
+  body.fills = [];
+  card.appendChild(body);
+  body.layoutSizingHorizontal = "FILL";
+
+  const previewColumn = createDocumentationFrame(
+    "Preview",
+    DOCUMENTATION_PREVIEW_WIDTH,
+    16,
+    0,
   );
-  addDocumentationSection(
-    card,
-    "Editable Figma properties",
-    propertyDocumentationLines(component),
-    fonts,
-    variables,
+  previewColumn.fills = [];
+  body.appendChild(previewColumn);
+  appendDocumentationText(
+    previewColumn,
+    createDocumentationText(
+      `Preview · ${component.combinations.length} supported combination${component.combinations.length === 1 ? "" : "s"}`,
+      fonts.heading,
+      24,
+      32,
+      DOCUMENTATION_PREVIEW_WIDTH,
+      DOCUMENTATION_COLORS.textStrong,
+      "text-strong",
+      variables,
+    ),
   );
-  addDocumentationSection(
-    card,
-    "Storybook controls & actions",
-    controlDocumentationLines(component),
-    fonts,
-    variables,
-  );
-  addDocumentationSection(
-    card,
-    "Composition",
-    [
-      component.uses.length ? `Uses · ${component.uses.join(" · ")}` : "",
-      component.usedBy.length
-        ? `Used by · ${component.usedBy.join(" · ")}`
-        : "",
-    ].filter(Boolean),
-    fonts,
-    variables,
-  );
-  addDocumentationSection(
-    card,
-    `Supported combinations · ${component.combinations.length}`,
-    [
-      "Each card below is a live instance of the publishable component. Its label and explanation come from the same Storybook properties used to generate the variant.",
-    ],
-    fonts,
-    variables,
+  appendDocumentationText(
+    previewColumn,
+    createDocumentationText(
+      "Every preview is a live library instance at its exact Storybook dimensions.",
+      fonts.body,
+      14,
+      21,
+      DOCUMENTATION_PREVIEW_WIDTH,
+      DOCUMENTATION_COLORS.textMuted,
+      "text-muted",
+      variables,
+    ),
   );
   const gallery = buildCombinationGallery(
     manifest,
@@ -2812,9 +3072,106 @@ function buildComponentDocumentationCard(
     runtime,
     fonts,
     variables,
+    DOCUMENTATION_PREVIEW_WIDTH,
   );
-  card.appendChild(gallery);
+  previewColumn.appendChild(gallery);
   gallery.layoutSizingHorizontal = "FILL";
+
+  const detailsColumn = createDocumentationFrame(
+    "Details",
+    DOCUMENTATION_DETAILS_WIDTH,
+    20,
+    0,
+  );
+  detailsColumn.fills = [];
+  body.appendChild(detailsColumn);
+  addDocumentationGuidance(
+    detailsColumn,
+    component.guidance,
+    fonts,
+    variables,
+    DOCUMENTATION_DETAILS_WIDTH,
+  );
+  addDocumentationDataPanel(
+    detailsColumn,
+    "Variant axes",
+    component.axes.map((axis) => ({
+      name: axis.name,
+      type: "variant",
+      details: axis.values.join("  ·  "),
+    })),
+    fonts,
+    variables,
+    DOCUMENTATION_DETAILS_WIDTH,
+  );
+  addDocumentationDataPanel(
+    detailsColumn,
+    "Editable Figma properties",
+    component.properties.map((property) => {
+      const defaultValue =
+        property.type === "INSTANCE_SWAP"
+          ? property.defaultComponent
+          : property.defaultValue;
+      return {
+        name: property.name,
+        type: property.type,
+        details: `Default · ${formatDefaultValue(defaultValue)}`,
+      };
+    }),
+    fonts,
+    variables,
+    DOCUMENTATION_DETAILS_WIDTH,
+  );
+  addDocumentationDataPanel(
+    detailsColumn,
+    "Storybook controls & actions",
+    component.controls.map((control) => ({
+      name: control.label ?? control.name,
+      type: control.type,
+      details: [
+        control.options?.length
+          ? `Options · ${control.options.join(" · ")}`
+          : "",
+        control.defaultValue !== undefined
+          ? `Default · ${formatDefaultValue(control.defaultValue)}`
+          : "",
+        control.category ? `Category · ${control.category}` : "",
+      ]
+        .filter(Boolean)
+        .join("\n"),
+      description: control.description,
+    })),
+    fonts,
+    variables,
+    DOCUMENTATION_DETAILS_WIDTH,
+  );
+  addDocumentationDataPanel(
+    detailsColumn,
+    "Composition",
+    [
+      ...(component.uses.length
+        ? [
+            {
+              name: "Uses",
+              type: "dependency",
+              details: component.uses.join(" · "),
+            },
+          ]
+        : []),
+      ...(component.usedBy.length
+        ? [
+            {
+              name: "Used by",
+              type: "dependency",
+              details: component.usedBy.join(" · "),
+            },
+          ]
+        : []),
+    ],
+    fonts,
+    variables,
+    DOCUMENTATION_DETAILS_WIDTH,
+  );
   return card;
 }
 

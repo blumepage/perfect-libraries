@@ -58,6 +58,26 @@ export function applySourceChildPlacement({
   }
 }
 
+export function enforceExactNodeSize({ node, width, height }) {
+  if ("layoutSizingHorizontal" in node) {
+    node.layoutSizingHorizontal = "FIXED";
+  }
+  if ("layoutSizingVertical" in node) {
+    node.layoutSizingVertical = "FIXED";
+  }
+  node.resizeWithoutConstraints(width, height);
+}
+
+export function configureFixedWidthAutoHeightText({
+  text,
+  width,
+  minimumHeight,
+}) {
+  text.textAutoResize = "NONE";
+  text.resize(width, minimumHeight);
+  text.textAutoResize = "HEIGHT";
+}
+
 export function layoutManualVariantGrid({
   componentSet,
   items,
@@ -80,7 +100,7 @@ export function layoutManualVariantGrid({
   items.forEach(({ node, width, height }, index) => {
     const column = index % columns;
     const row = Math.floor(index / columns);
-    node.resizeWithoutConstraints(width, height);
+    enforceExactNodeSize({ node, width, height });
     node.x =
       padding +
       columnWidths.slice(0, column).reduce((sum, value) => sum + value, 0) +

@@ -116,6 +116,31 @@ export interface ManualComponentSetLike {
   resizeWithoutConstraints(width: number, height: number): void;
 }
 
+export interface ExactSizeNodeLike {
+  layoutSizingHorizontal?: string;
+  layoutSizingVertical?: string;
+  resizeWithoutConstraints(width: number, height: number): void;
+}
+
+export function enforceExactNodeSize<TNode extends ExactSizeNodeLike>(input: {
+  node: TNode;
+  width: number;
+  height: number;
+}): void;
+
+export interface FixedWidthTextLike {
+  textAutoResize: string;
+  resize(width: number, height: number): void;
+}
+
+export function configureFixedWidthAutoHeightText<
+  TText extends FixedWidthTextLike,
+>(input: {
+  text: TText;
+  width: number;
+  minimumHeight: number;
+}): void;
+
 export function layoutManualVariantGrid<
   TNode extends ResizablePositionedNodeLike,
 >(input: {
