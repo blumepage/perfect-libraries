@@ -49,3 +49,21 @@ export function resolveSourceNodes<TNode extends SourceNodeLike>(input: {
   errors: string[];
   warnings: string[];
 };
+
+export function reconcileAndResolveManagedSources<
+  TContainer extends ManagedSourceContainerLike,
+  TPage extends SourcePageLike<TContainer>,
+  TNode extends SourceNodeLike,
+>(input: {
+  containers: readonly TContainer[];
+  currentPage: TPage;
+  requests: readonly SourceRequest[];
+  libraryId: string;
+  release: string;
+  getMetadata(node: TNode): SourceCandidateMetadata;
+  getCandidates(container: TContainer): readonly TNode[];
+}): SourceContainerReconciliation<TContainer> & {
+  nodes: Map<string, TNode>;
+  errors: string[];
+  warnings: string[];
+};

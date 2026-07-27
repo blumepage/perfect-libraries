@@ -46,6 +46,7 @@ import {
   type DocumentationGroup,
 } from "./documentation-plan";
 import {
+  reconcileAndResolveManagedSources,
   reconcileManagedSourceContainer,
   resolveSourceNodes,
 } from "@perfect-libraries/runtime-contract";
@@ -754,7 +755,7 @@ async function resolveSourceLookup(
     }
     const materialized = await materializeSources(manifest, sources.sources);
     return {
-      lookup: findSourceNodes(manifest, materialized.container),
+      lookup: findManagedSourceNodes(manifest, materialized.container),
       warnings: materialized.warnings,
       sourceErrors: [],
     };
@@ -1092,6 +1093,56 @@ function findSourceNodes(
     candidates: root.findAll(),
     libraryId: manifest.library.id,
     release: manifest.library.release,
+    getMetadata: (node) => ({
+      libraryId:
+        "getSharedPluginData" in node
+          ? node.getSharedPluginData(PLUGIN_NAMESPACE, "libraryId")
+          : undefined,
+      entityType:
+        "getSharedPluginData" in node
+          ? node.getSharedPluginData(PLUGIN_NAMESPACE, "entityType")
+          : undefined,
+      entityId:
+        "getSharedPluginData" in node
+          ? node.getSharedPluginData(PLUGIN_NAMESPACE, "entityId")
+          : undefined,
+      release:
+        "getSharedPluginData" in node
+          ? node.getSharedPluginData(PLUGIN_NAMESPACE, "release")
+          : undefined,
+    }),
+  });
+  if (requests.length === 0) {
+    lookup.warnings.push("The manifest contains no component source nodes.");
+  }
+  return lookup;
+}
+
+function findManagedSourceNodes(
+  manifest: PerfectLibrariesManifest,
+  materializedContainer: FrameNode,
+): SourceLookup {
+  const requests = manifest.components.flatMap((component) =>
+    component.variants.map((variant) => ({
+      sourceNode: variant.sourceNode,
+      variantId: variant.id,
+    })),
+  );
+  const managedContainers = findManagedSceneNodesByEntity(
+    manifest.library.id,
+    "source-container",
+    manifest.library.id,
+  );
+  if (!managedContainers.includes(materializedContainer)) {
+    managedContainers.push(materializedContainer);
+  }
+  const lookup = reconcileAndResolveManagedSources({
+    containers: managedContainers as FrameNode[],
+    currentPage: figma.currentPage,
+    requests,
+    libraryId: manifest.library.id,
+    release: manifest.library.release,
+    getCandidates: (container) => container.findAll(),
     getMetadata: (node) => ({
       libraryId:
         "getSharedPluginData" in node

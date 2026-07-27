@@ -83,3 +83,33 @@ export function resolveSourceNodes({
 
   return { nodes, errors, warnings };
 }
+
+export function reconcileAndResolveManagedSources({
+  containers,
+  currentPage,
+  requests,
+  libraryId,
+  release,
+  getMetadata,
+  getCandidates,
+}) {
+  const reconciliation = reconcileManagedSourceContainer({
+    candidates: containers,
+    currentPage,
+  });
+  const candidates = reconciliation.container
+    ? getCandidates(reconciliation.container)
+    : [];
+  const lookup = resolveSourceNodes({
+    requests,
+    candidates,
+    libraryId,
+    release,
+    getMetadata,
+  });
+
+  return {
+    ...reconciliation,
+    ...lookup,
+  };
+}
