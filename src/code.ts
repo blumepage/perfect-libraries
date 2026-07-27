@@ -45,6 +45,10 @@ import {
   type DocumentationComponent,
   type DocumentationGroup,
 } from "./documentation-plan";
+import {
+  reconcileManagedSourceContainer,
+  resolveSourceNodes,
+} from "@perfect-libraries/runtime-contract";
 
 declare const __html__: string;
 declare const __PLUGIN_BUILD__: string;
@@ -103,6 +107,11 @@ interface ResolvedSourceLookup {
   lookup: SourceLookup;
   warnings: string[];
   sourceErrors: string[];
+}
+
+interface MaterializedSources {
+  container: FrameNode;
+  warnings: string[];
 }
 
 interface ComponentRuntime {
@@ -743,10 +752,10 @@ async function resolveSourceLookup(
         sourceErrors: contract.errors,
       };
     }
-    const warnings = await materializeSources(manifest, sources.sources);
+    const materialized = await materializeSources(manifest, sources.sources);
     return {
-      lookup: findSourceNodes(manifest),
-      warnings,
+      lookup: findSourceNodes(manifest, materialized.container),
+      warnings: materialized.warnings,
       sourceErrors: [],
     };
   } catch (error) {
@@ -982,7 +991,7 @@ async function createSourceSceneNode(
 async function materializeSources(
   manifest: PerfectLibrariesManifest,
   sources: PerfectLibrariesSources,
-): Promise<string[]> {
+): Promise<MaterializedSources> {
   if (
     sources.library.id !== manifest.library.id ||
     sources.library.release !== manifest.library.release
@@ -1014,8 +1023,11 @@ async function materializeSources(
   if (managedContainers.some((candidate) => candidate.type !== "FRAME")) {
     throw new Error("The managed Storybook source container is not a frame.");
   }
-  let [container, ...duplicateContainers] = managedContainers;
-  for (const duplicate of duplicateContainers) duplicate.remove();
+  const reconciliation = reconcileManagedSourceContainer({
+    candidates: managedContainers as FrameNode[],
+    currentPage: figma.currentPage,
+  });
+  let container = reconciliation.container;
   if (!container) {
     container = figma.createFrame();
     figma.currentPage.appendChild(container);
@@ -1062,87 +1074,47 @@ async function materializeSources(
       warnings.push(...(source.warnings ?? []).map((warning) => `${source.sourceNode}: ${warning}`));
     }
   }
-  return warnings;
+  return { container: frame, warnings };
 }
 
-function findSourceNodes(manifest: PerfectLibrariesManifest): SourceLookup {
-  const requested = new Map(
-    manifest.components.flatMap((component) =>
-      component.variants.map(
-        (variant) => [variant.sourceNode, variant.id] as const,
-      ),
-    ),
+function findSourceNodes(
+  manifest: PerfectLibrariesManifest,
+  root: PageNode | FrameNode = figma.currentPage,
+): SourceLookup {
+  const requests = manifest.components.flatMap((component) =>
+    component.variants.map((variant) => ({
+      sourceNode: variant.sourceNode,
+      variantId: variant.id,
+    })),
   );
-  const requestedNames = new Set(requested.keys());
-  const matches = new Map<string, SceneNode[]>();
-  for (const name of requestedNames) matches.set(name, []);
-
-  for (const node of figma.currentPage.findAll()) {
-    if (
-      requestedNames.has(node.name) &&
-      ["FRAME", "COMPONENT", "INSTANCE"].includes(node.type)
-    ) {
-      matches.get(node.name)?.push(node);
-    }
+  const lookup = resolveSourceNodes({
+    requests,
+    candidates: root.findAll(),
+    libraryId: manifest.library.id,
+    release: manifest.library.release,
+    getMetadata: (node) => ({
+      libraryId:
+        "getSharedPluginData" in node
+          ? node.getSharedPluginData(PLUGIN_NAMESPACE, "libraryId")
+          : undefined,
+      entityType:
+        "getSharedPluginData" in node
+          ? node.getSharedPluginData(PLUGIN_NAMESPACE, "entityType")
+          : undefined,
+      entityId:
+        "getSharedPluginData" in node
+          ? node.getSharedPluginData(PLUGIN_NAMESPACE, "entityId")
+          : undefined,
+      release:
+        "getSharedPluginData" in node
+          ? node.getSharedPluginData(PLUGIN_NAMESPACE, "release")
+          : undefined,
+    }),
+  });
+  if (requests.length === 0) {
+    lookup.warnings.push("The manifest contains no component source nodes.");
   }
-
-  const nodes = new Map<string, SceneNode>();
-  const errors: string[] = [];
-  const warnings: string[] = [];
-
-  for (const name of requestedNames) {
-    const named = matches.get(name) ?? [];
-    const expectedEntityId = requested.get(name);
-    const managedSources = named.filter(
-      (candidate) =>
-        "getSharedPluginData" in candidate &&
-        candidate.getSharedPluginData(PLUGIN_NAMESPACE, "libraryId") ===
-          manifest.library.id &&
-        candidate.getSharedPluginData(PLUGIN_NAMESPACE, "entityType") ===
-          "source" &&
-        candidate.getSharedPluginData(PLUGIN_NAMESPACE, "entityId") ===
-          expectedEntityId &&
-        candidate.getSharedPluginData(PLUGIN_NAMESPACE, "release") ===
-          manifest.library.release,
-    );
-    const candidates = managedSources.length > 0 ? managedSources : named;
-    if (candidates.length === 0) {
-      errors.push(`Source node "${name}" was not found on the current page.`);
-      continue;
-    }
-    if (candidates.length > 1) {
-      errors.push(
-        `Source node "${name}" is ambiguous; ${candidates.length} import frames have that exact name.`,
-      );
-      continue;
-    }
-    const node = candidates[0];
-    if (!["FRAME", "COMPONENT", "INSTANCE"].includes(node.type)) {
-      errors.push(
-        `Source node "${name}" is ${node.type}; use a Frame, Component, or Instance.`,
-      );
-      continue;
-    }
-    const managedEntityType =
-      "getSharedPluginData" in node
-        ? node.getSharedPluginData(PLUGIN_NAMESPACE, "entityType")
-        : "";
-    if (
-      isManaged(node, manifest.library.id) &&
-      managedEntityType !== "source"
-    ) {
-      errors.push(
-        `Source node "${name}" is already managed output. Keep imported source frames separate from the generated library.`,
-      );
-      continue;
-    }
-    nodes.set(name, node);
-  }
-
-  if (requestedNames.size === 0) {
-    warnings.push("The manifest contains no component source nodes.");
-  }
-  return { nodes, errors, warnings };
+  return lookup;
 }
 
 function auditSourceAutoLayout(nodes: Map<string, SceneNode>): string[] {
@@ -1207,13 +1179,6 @@ function findManagedSceneNodesByEntity(
     (node) =>
       node.getSharedPluginData(PLUGIN_NAMESPACE, "entityType") === entityType &&
       node.getSharedPluginData(PLUGIN_NAMESPACE, "entityId") === entityId,
-  );
-}
-
-function isManaged(node: SceneNode, libraryId: string): boolean {
-  return (
-    "getSharedPluginData" in node &&
-    node.getSharedPluginData(PLUGIN_NAMESPACE, "libraryId") === libraryId
   );
 }
 

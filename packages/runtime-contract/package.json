@@ -1,0 +1,22 @@
+{
+  "name": "@perfect-libraries/runtime-contract",
+  "version": "0.1.0",
+  "description": "Shared source-materialization runtime contracts for Perfect Libraries plugins and integration tests.",
+  "license": "MIT",
+  "type": "module",
+  "exports": {
+    ".": {
+      "types": "./src/index.d.ts",
+      "default": "./src/index.js"
+    }
+  },
+  "scripts": {
+    "test": "node --test test/*.test.mjs"
+  },
+  "files": [
+    "src"
+  ],
+  "engines": {
+    "node": ">=22"
+  }
+}
