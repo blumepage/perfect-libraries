@@ -4,6 +4,7 @@ import {
   parseReleaseIngest,
   toPublicReleaseFeed,
   type LibraryRelease,
+  type ReleaseIngest,
 } from "./model.ts";
 
 const MAX_REQUEST_BYTES = 12_000_000;
@@ -146,6 +147,45 @@ function libraryAllowed(libraryId: string, configured: string | undefined): bool
     .includes(libraryId);
 }
 
+function canonicalJson(value: unknown): string {
+  if (Array.isArray(value)) {
+    return `[${value.map(canonicalJson).join(",")}]`;
+  }
+  if (value !== null && typeof value === "object") {
+    return `{${Object.entries(value)
+      .sort(([left], [right]) =>
+        left < right ? -1 : left > right ? 1 : 0,
+      )
+      .map(
+        ([key, child]) =>
+          `${JSON.stringify(key)}:${canonicalJson(child)}`,
+      )
+      .join(",")}}`;
+  }
+  return JSON.stringify(value) ?? "undefined";
+}
+
+function sameJson(left: unknown, right: unknown): boolean {
+  return canonicalJson(left) === canonicalJson(right);
+}
+
+function samePendingReleaseMetadata(
+  existing: LibraryRelease,
+  input: ReleaseIngest,
+): boolean {
+  const {
+    status: _status,
+    manifestUrl: _manifestUrl,
+    sourcesUrl: _sourcesUrl,
+    published: _published,
+    ...existingRelease
+  } = existing.release;
+  return (
+    sameJson(existing.library, input.library) &&
+    sameJson(existingRelease, input.release)
+  );
+}
+
 async function ingestRelease(request: Request, env: Env): Promise<Response> {
   if (!(await sameSecret(bearer(request), env.RELEASE_INGEST_TOKEN))) {
     return json({ error: "Unauthorized." }, 401);
@@ -195,6 +235,53 @@ async function ingestRelease(request: Request, env: Env): Promise<Response> {
       {
         ok: true,
         alreadyPublished: true,
+        feedUrl: feedUrl(request, input.library.id),
+        manifestUrl: existing.release.manifestUrl,
+        ...(existing.release.sourcesUrl
+          ? { sourcesUrl: existing.release.sourcesUrl }
+          : {}),
+        release: toPublicReleaseFeed(existing),
+      },
+      200,
+    );
+  }
+  if (
+    existing?.release.status === "pending" &&
+    input.release.version === existing.release.version
+  ) {
+    const [storedManifest, storedSources] = await Promise.all([
+      env.RELEASES.get(
+        manifestKey(input.library.id, input.release.version),
+        "json",
+      ),
+      env.RELEASES.get(
+        sourcesKey(input.library.id, input.release.version),
+        "json",
+      ),
+    ]);
+    const sourcesMatch =
+      input.sources === undefined
+        ? storedSources === null && existing.release.sourcesUrl === undefined
+        : storedSources !== null &&
+          existing.release.sourcesUrl !== undefined &&
+          sameJson(storedSources, input.sources);
+    if (
+      !samePendingReleaseMetadata(existing, input) ||
+      storedManifest === null ||
+      !sameJson(storedManifest, input.manifest) ||
+      !sourcesMatch
+    ) {
+      return json(
+        {
+          error: `Release ${input.release.version} already exists with different content.`,
+        },
+        409,
+      );
+    }
+    return json(
+      {
+        ok: true,
+        idempotent: true,
         feedUrl: feedUrl(request, input.library.id),
         manifestUrl: existing.release.manifestUrl,
         ...(existing.release.sourcesUrl

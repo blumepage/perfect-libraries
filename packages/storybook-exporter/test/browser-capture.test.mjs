@@ -227,6 +227,50 @@ test("preserves CSS auto margins as Figma Auto Layout fill sizing", async () => 
   assert.deepEqual(result.warnings, []);
 });
 
+test("preserves CSS auto margins for text, vector, and image children", async () => {
+  const svg = encodeURIComponent(
+    '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 8 8"><path d="M0 0h8v8H0z"/></svg>',
+  );
+  const png =
+    "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII=";
+  const result = await capture(`
+    <main data-figma-source-node="Trailing children" data-figma-source-root
+      style="display:flex;flex-direction:column;width:160px;gap:4px">
+      <div style="display:flex;width:160px">
+        <span style="margin-left:auto">Trailing text</span>
+      </div>
+      <div style="display:flex;width:160px">
+        <svg style="margin-left:auto;width:8px;height:8px" viewBox="0 0 8 8">
+          <path d="M0 0h8v8H0z"/>
+        </svg>
+      </div>
+      <div style="display:flex;width:160px">
+        <img alt="Trailing image" width="8" height="8"
+          style="margin-left:auto"
+          src="data:image/png;base64,${png}">
+      </div>
+      <div style="display:flex;width:160px">
+        <img alt="Trailing vector image" width="8" height="8"
+          style="margin-left:auto"
+          src="data:image/svg+xml,${svg}">
+      </div>
+    </main>
+  `, "Trailing children");
+
+  const [text, vector, image, vectorImage] = result.scene.children.map(
+    (row) => row.children[0],
+  );
+  assert.equal(text.type, "TEXT");
+  assert.equal(text.layoutSizingHorizontal, "FILL");
+  assert.equal(vector.type, "VECTOR");
+  assert.equal(vector.layoutSizingHorizontal, "FILL");
+  assert.equal(image.type, "IMAGE");
+  assert.equal(image.layoutSizingHorizontal, "FILL");
+  assert.equal(vectorImage.type, "VECTOR");
+  assert.equal(vectorImage.layoutSizingHorizontal, "FILL");
+  assert.deepEqual(result.warnings, []);
+});
+
 test("captures exactly one visible document-level portal source", async () => {
   const result = await capture(`
     <main data-figma-source-node="Dialog / Open"

@@ -712,6 +712,7 @@
     const style = getComputedStyle(element);
     const rect = element.getBoundingClientRect();
     if (!visible(element, style, rect)) return null;
+    const childSizing = autoLayoutChildSizing(element, style);
 
     if (element instanceof SVGSVGElement) {
       return {
@@ -722,15 +723,18 @@
         x: round(rect.left - parentRect.left),
         y: round(rect.top - parentRect.top),
         svg: bakeCurrentColor(element.outerHTML, style),
+        ...childSizing,
       };
     }
 
     if (element instanceof HTMLImageElement) {
-      return imageLayer(element, style, rect, parentRect, warnings);
+      const layer = await imageLayer(element, style, rect, parentRect, warnings);
+      return layer ? { ...layer, ...childSizing } : null;
     }
 
     if (isTextOnly(element)) {
-      return textLayer(element.firstChild, parentRect, style, 0);
+      const layer = textLayer(element.firstChild, parentRect, style, 0);
+      return layer ? { ...layer, ...childSizing } : null;
     }
 
     const display = style.display;
@@ -804,7 +808,7 @@
       layoutMode: inferred?.layoutMode ?? layoutMode,
       primaryAxisSizingMode: inline ? "AUTO" : "FIXED",
       counterAxisSizingMode: inline ? "AUTO" : "FIXED",
-      ...autoLayoutChildSizing(element, style),
+      ...childSizing,
       ...(flex ? {
         primaryAxisAlignItems: alignment(style.justifyContent, true),
         counterAxisAlignItems: alignment(style.alignItems),
