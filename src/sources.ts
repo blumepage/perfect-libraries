@@ -42,6 +42,11 @@ export interface SourceBaseNode {
   height: number;
   x?: number;
   y?: number;
+  layoutPositioning?: "ABSOLUTE";
+  constraints?: {
+    horizontal: "MIN" | "CENTER" | "MAX" | "STRETCH" | "SCALE";
+    vertical: "MIN" | "CENTER" | "MAX" | "STRETCH" | "SCALE";
+  };
   opacity?: number;
 }
 
@@ -298,6 +303,25 @@ function validateSceneNode(
   }
   if (!finiteNumber(value.height) || value.height <= 0) {
     errors.push(`${path}.height must be a positive number.`);
+  }
+  if (
+    value.layoutPositioning !== undefined &&
+    value.layoutPositioning !== "ABSOLUTE"
+  ) {
+    errors.push(`${path}.layoutPositioning is invalid.`);
+  }
+  if (value.constraints !== undefined) {
+    if (!isRecord(value.constraints)) {
+      errors.push(`${path}.constraints must be an object.`);
+    } else {
+      const values = ["MIN", "CENTER", "MAX", "STRETCH", "SCALE"];
+      if (!values.includes(String(value.constraints.horizontal))) {
+        errors.push(`${path}.constraints.horizontal is invalid.`);
+      }
+      if (!values.includes(String(value.constraints.vertical))) {
+        errors.push(`${path}.constraints.vertical is invalid.`);
+      }
+    }
   }
   if (value.type === "FRAME") {
     if (!["HORIZONTAL", "VERTICAL", "NONE"].includes(String(value.layoutMode))) {

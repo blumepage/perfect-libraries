@@ -134,7 +134,18 @@
         "height": { "type": "number", "exclusiveMinimum": 0 },
         "x": { "type": "number" },
         "y": { "type": "number" },
+        "layoutPositioning": { "const": "ABSOLUTE" },
+        "constraints": { "$ref": "#/$defs/constraints" },
         "opacity": { "type": "number", "minimum": 0, "maximum": 1 }
+      }
+    },
+    "constraints": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["horizontal", "vertical"],
+      "properties": {
+        "horizontal": { "enum": ["MIN", "CENTER", "MAX", "STRETCH", "SCALE"] },
+        "vertical": { "enum": ["MIN", "CENTER", "MAX", "STRETCH", "SCALE"] }
       }
     },
     "sceneNode": {

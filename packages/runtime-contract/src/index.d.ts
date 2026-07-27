@@ -78,6 +78,58 @@ export function applyNumericVariableBinding(input: {
   bind?: (field: NumericBindingField) => void;
 }): readonly NumericBindingField[];
 
+export interface SourceConstraintsLike {
+  horizontal: "MIN" | "CENTER" | "MAX" | "STRETCH" | "SCALE";
+  vertical: "MIN" | "CENTER" | "MAX" | "STRETCH" | "SCALE";
+}
+
+export interface SourcePlacementLike {
+  x?: number;
+  y?: number;
+  layoutPositioning?: "ABSOLUTE";
+  constraints?: SourceConstraintsLike;
+}
+
+export interface PositionedSceneNodeLike {
+  x: number;
+  y: number;
+  layoutPositioning?: "AUTO" | "ABSOLUTE";
+  constraints?: SourceConstraintsLike;
+}
+
+export function applySourceChildPlacement(input: {
+  parentLayoutMode: "HORIZONTAL" | "VERTICAL" | "NONE";
+  source: SourcePlacementLike;
+  child: PositionedSceneNodeLike;
+}): void;
+
+export interface ResizablePositionedNodeLike {
+  width: number;
+  height: number;
+  x: number;
+  y: number;
+  resizeWithoutConstraints(width: number, height: number): void;
+}
+
+export interface ManualComponentSetLike {
+  layoutMode: string;
+  resizeWithoutConstraints(width: number, height: number): void;
+}
+
+export function layoutManualVariantGrid<
+  TNode extends ResizablePositionedNodeLike,
+>(input: {
+  componentSet: ManualComponentSetLike;
+  items: readonly {
+    node: TNode;
+    width: number;
+    height: number;
+  }[];
+  columns: number;
+  gap: number;
+  padding: number;
+}): void;
+
 export function resolveSourceNodes<TNode extends SourceNodeLike>(input: {
   requests: readonly SourceRequest[];
   candidates: readonly TNode[];

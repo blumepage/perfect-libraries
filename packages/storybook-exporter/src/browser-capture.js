@@ -478,6 +478,22 @@
     return "MIN";
   }
 
+  function overlayConstraints(layer, parentRect) {
+    function nearestAnchor(position, size, parentSize) {
+      const distances = [
+        ["MIN", Math.abs(position)],
+        ["CENTER", Math.abs(position + size / 2 - parentSize / 2)],
+        ["MAX", Math.abs(parentSize - position - size)],
+      ];
+      distances.sort((left, right) => left[1] - right[1]);
+      return distances[0][0];
+    }
+    return {
+      horizontal: nearestAnchor(layer.x ?? 0, layer.width, parentRect.width),
+      vertical: nearestAnchor(layer.y ?? 0, layer.height, parentRect.height),
+    };
+  }
+
   function approximatelyUniform(values, tolerance = 1.5) {
     return (
       values.length === 0 ||
@@ -603,14 +619,7 @@
   }
 
   function inferLayout(element, style, children, rect) {
-    if (
-      children.length < 2 ||
-      [...element.children].some(
-        (child) => getComputedStyle(child).position === "absolute",
-      )
-    ) {
-      return null;
-    }
+    if (children.length < 2) return null;
     if (style.display === "grid" || style.display === "inline-grid") {
       return (
         inferredWrappedLayout(children, rect) ||
@@ -677,7 +686,14 @@
         if (text) children.push(text);
       } else if (child instanceof Element) {
         const layer = await serialize(child, rect, warnings, depth + 1);
-        if (layer) children.push(layer);
+        if (layer) {
+          const childPosition = getComputedStyle(child).position;
+          if (childPosition === "absolute" || childPosition === "fixed") {
+            layer.layoutPositioning = "ABSOLUTE";
+            layer.constraints = overlayConstraints(layer, rect);
+          }
+          children.push(layer);
+        }
       }
     }
     if (["INPUT", "TEXTAREA"].includes(element.tagName) && children.length === 0) {
@@ -704,7 +720,12 @@
       }
     }
 
-    const inferred = flex ? null : inferLayout(element, style, children, rect);
+    const flowChildren = children.filter(
+      (child) => child.layoutPositioning !== "ABSOLUTE",
+    );
+    const inferred = flex
+      ? null
+      : inferLayout(element, style, flowChildren, rect);
     if (!flex && children.length > 1 && !inferred) {
       warnings.push(
         `${layerName(element, element.tagName.toLowerCase())} has ${children.length} children and cannot become Auto Layout (${display}).`,

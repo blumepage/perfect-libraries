@@ -2,7 +2,9 @@ import assert from "node:assert/strict";
 import test from "node:test";
 
 import {
+  applySourceChildPlacement,
   applyNumericVariableBinding,
+  layoutManualVariantGrid,
   reconcileAndResolveManagedSources,
   reconcileManagedSourceContainer,
   resolveSourceNodes,
@@ -159,4 +161,76 @@ test("a radius variable binds every independent component corner", () => {
     "bottomLeftRadius",
   ]);
   assert.deepEqual(bound, fields);
+});
+
+test("absolute source children stay out of Auto Layout flow and retain top-right geometry", () => {
+  const child = {
+    layoutPositioning: "AUTO",
+    constraints: { horizontal: "MIN", vertical: "MIN" },
+    x: 0,
+    y: 0,
+  };
+
+  applySourceChildPlacement({
+    parentLayoutMode: "HORIZONTAL",
+    source: {
+      x: 34,
+      y: -3,
+      layoutPositioning: "ABSOLUTE",
+      constraints: { horizontal: "MAX", vertical: "MIN" },
+    },
+    child,
+  });
+
+  assert.equal(child.layoutPositioning, "ABSOLUTE");
+  assert.deepEqual(child.constraints, {
+    horizontal: "MAX",
+    vertical: "MIN",
+  });
+  assert.equal(child.x, 34);
+  assert.equal(child.y, -3);
+});
+
+test("manual variant grids preserve exact source sizes instead of Auto Layout reflow", () => {
+  const componentSet = {
+    layoutMode: "VERTICAL",
+    width: 0,
+    height: 0,
+    resizeWithoutConstraints(width, height) {
+      this.width = width;
+      this.height = height;
+    },
+  };
+  const nodes = Array.from({ length: 5 }, () => ({
+    width: 18,
+    height: 54,
+    x: 0,
+    y: 0,
+    resizeWithoutConstraints(width, height) {
+      this.width = width;
+      this.height = height;
+    },
+  }));
+
+  layoutManualVariantGrid({
+    componentSet,
+    items: nodes.map((node) => ({ node, width: 28, height: 28 })),
+    columns: 3,
+    gap: 24,
+    padding: 40,
+  });
+
+  assert.equal(componentSet.layoutMode, "NONE");
+  assert.deepEqual(
+    nodes.map(({ width, height, x, y }) => ({ width, height, x, y })),
+    [
+      { width: 28, height: 28, x: 40, y: 40 },
+      { width: 28, height: 28, x: 92, y: 40 },
+      { width: 28, height: 28, x: 144, y: 40 },
+      { width: 28, height: 28, x: 40, y: 92 },
+      { width: 28, height: 28, x: 92, y: 92 },
+    ],
+  );
+  assert.equal(componentSet.width, 212);
+  assert.equal(componentSet.height, 160);
 });

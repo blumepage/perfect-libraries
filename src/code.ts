@@ -46,7 +46,9 @@ import {
   type DocumentationGroup,
 } from "./documentation-plan";
 import {
+  applySourceChildPlacement,
   applyNumericVariableBinding,
+  layoutManualVariantGrid,
   reconcileAndResolveManagedSources,
   reconcileManagedSourceContainer,
   resolveSourceNodes,
@@ -978,10 +980,11 @@ async function createSourceSceneNode(
       loadedFonts,
     );
     frame.appendChild(child);
-    if (source.layoutMode === "NONE") {
-      child.x = childSource.x ?? 0;
-      child.y = childSource.y ?? 0;
-    }
+    applySourceChildPlacement({
+      parentLayoutMode: source.layoutMode,
+      source: childSource,
+      child,
+    });
   }
   if (source.layoutMode !== "NONE") {
     frame.primaryAxisSizingMode = source.primaryAxisSizingMode ?? "FIXED";
@@ -1617,7 +1620,7 @@ function syncComponentFrames(
     owner.name = component.name;
     owner.description = component.description ?? "";
     tagManaged(owner, manifest, "component-set", component.id);
-    layoutVariantGrid(owner, component);
+    layoutVariantGrid(owner, component, sourceNodes);
   }
 
   if (component.documentationUrl) {
@@ -1814,6 +1817,7 @@ function findLayer(root: SceneNode, path: string): SceneNode | undefined {
 function layoutVariantGrid(
   componentSet: ComponentSetNode,
   component: ComponentDefinition,
+  sourceNodes: Map<string, SceneNode>,
 ): void {
   const requested = component.variants
     .map((variant) => ({
@@ -1843,44 +1847,35 @@ function layoutVariantGrid(
         properties: {},
       },
       node,
+      width: node.width,
+      height: node.height,
     }));
-  const ordered = [...requested, ...stale];
+  const ordered = [
+    ...requested.map((item) => {
+      const source = sourceNodes.get(item.definition.sourceNode);
+      return {
+        ...item,
+        width: source?.width ?? item.node.width,
+        height: source?.height ?? item.node.height,
+      };
+    }),
+    ...stale,
+  ];
 
   const columns = Math.min(5, Math.max(1, Math.ceil(Math.sqrt(ordered.length))));
-  const rows = Math.ceil(ordered.length / columns);
   const gap = 24;
   const padding = 40;
-  const columnWidths = Array.from({ length: columns }, () => 0);
-  const rowHeights = Array.from({ length: rows }, () => 0);
-
-  ordered.forEach(({ node }, index) => {
-    const column = index % columns;
-    const row = Math.floor(index / columns);
-    columnWidths[column] = Math.max(columnWidths[column], node.width);
-    rowHeights[row] = Math.max(rowHeights[row], node.height);
+  layoutManualVariantGrid({
+    componentSet,
+    items: ordered.map(({ node, width, height }) => ({
+      node,
+      width,
+      height,
+    })),
+    columns,
+    gap,
+    padding,
   });
-
-  ordered.forEach(({ node }, index) => {
-    const column = index % columns;
-    const row = Math.floor(index / columns);
-    node.x =
-      padding +
-      columnWidths.slice(0, column).reduce((sum, width) => sum + width, 0) +
-      column * gap;
-    node.y =
-      padding +
-      rowHeights.slice(0, row).reduce((sum, height) => sum + height, 0) +
-      row * gap;
-  });
-
-  componentSet.resizeWithoutConstraints(
-    padding * 2 +
-      columnWidths.reduce((sum, width) => sum + width, 0) +
-      Math.max(0, columns - 1) * gap,
-    padding * 2 +
-      rowHeights.reduce((sum, height) => sum + height, 0) +
-      Math.max(0, rows - 1) * gap,
-  );
 }
 
 function placeNewOwner(owner: ComponentOwner): void {

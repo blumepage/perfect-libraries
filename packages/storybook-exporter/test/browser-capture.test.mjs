@@ -187,6 +187,30 @@ test("keeps overlapping absolute composites as explicit fidelity blockers", asyn
   );
 });
 
+test("preserves top-right overlays inside Auto Layout without adding them to flow", async () => {
+  const result = await capture(`
+    <main data-figma-source-node="Count badge" data-figma-source-root
+      style="box-sizing:border-box;position:relative;display:inline-flex;align-items:center;justify-content:center;width:44px;height:36px;padding:4px">
+      <span style="width:16px;height:16px;background:#111"></span>
+      <span data-figma-layer="Count"
+        style="box-sizing:border-box;position:absolute;right:-4px;top:-3px;display:inline-flex;align-items:center;justify-content:center;width:14px;height:14px;border-radius:999px;background:#9172f8;color:white;font-size:8px">
+        2
+      </span>
+    </main>
+  `, "Count badge");
+
+  assert.equal(result.scene.layoutMode, "HORIZONTAL");
+  assert.equal(result.scene.children[1].name, "Count");
+  assert.equal(result.scene.children[1].layoutPositioning, "ABSOLUTE");
+  assert.deepEqual(result.scene.children[1].constraints, {
+    horizontal: "MAX",
+    vertical: "MIN",
+  });
+  assert.equal(result.scene.children[1].x, 34);
+  assert.equal(result.scene.children[1].y, -3);
+  assert.deepEqual(result.warnings, []);
+});
+
 test("captures exactly one visible document-level portal source", async () => {
   const result = await capture(`
     <main data-figma-source-node="Dialog / Open"

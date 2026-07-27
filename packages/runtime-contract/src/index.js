@@ -38,6 +38,69 @@ export function applyNumericVariableBinding({
   return fields;
 }
 
+export function applySourceChildPlacement({
+  parentLayoutMode,
+  source,
+  child,
+}) {
+  const absolute =
+    parentLayoutMode !== "NONE" && source.layoutPositioning === "ABSOLUTE";
+  if (absolute) child.layoutPositioning = "ABSOLUTE";
+  if (source.constraints) {
+    child.constraints = {
+      horizontal: source.constraints.horizontal,
+      vertical: source.constraints.vertical,
+    };
+  }
+  if (parentLayoutMode === "NONE" || absolute) {
+    child.x = source.x ?? 0;
+    child.y = source.y ?? 0;
+  }
+}
+
+export function layoutManualVariantGrid({
+  componentSet,
+  items,
+  columns,
+  gap,
+  padding,
+}) {
+  componentSet.layoutMode = "NONE";
+  const rowCount = Math.ceil(items.length / columns);
+  const columnWidths = Array.from({ length: columns }, () => 0);
+  const rowHeights = Array.from({ length: rowCount }, () => 0);
+
+  items.forEach(({ width, height }, index) => {
+    const column = index % columns;
+    const row = Math.floor(index / columns);
+    columnWidths[column] = Math.max(columnWidths[column], width);
+    rowHeights[row] = Math.max(rowHeights[row], height);
+  });
+
+  items.forEach(({ node, width, height }, index) => {
+    const column = index % columns;
+    const row = Math.floor(index / columns);
+    node.resizeWithoutConstraints(width, height);
+    node.x =
+      padding +
+      columnWidths.slice(0, column).reduce((sum, value) => sum + value, 0) +
+      column * gap;
+    node.y =
+      padding +
+      rowHeights.slice(0, row).reduce((sum, value) => sum + value, 0) +
+      row * gap;
+  });
+
+  componentSet.resizeWithoutConstraints(
+    padding * 2 +
+      columnWidths.reduce((sum, value) => sum + value, 0) +
+      Math.max(0, columns - 1) * gap,
+    padding * 2 +
+      rowHeights.reduce((sum, value) => sum + value, 0) +
+      Math.max(0, rowCount - 1) * gap,
+  );
+}
+
 export function reconcileManagedSourceContainer({
   candidates,
   currentPage,

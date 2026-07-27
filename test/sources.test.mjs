@@ -47,6 +47,26 @@ test("validates a nested Auto Layout Storybook source bundle", () => {
   assert.equal(result.sources?.variants[0].scene.layoutMode, "HORIZONTAL");
 });
 
+test("validates absolute child positioning and rejects unsupported constraints", () => {
+  const input = sources();
+  input.variants[0].scene.children[0].layoutPositioning = "ABSOLUTE";
+  input.variants[0].scene.children[0].constraints = {
+    horizontal: "MAX",
+    vertical: "MIN",
+  };
+
+  assert.equal(validateSources(input).ok, true);
+
+  input.variants[0].scene.children[0].constraints.horizontal = "RIGHT";
+  const invalid = validateSources(input);
+  assert.equal(invalid.ok, false);
+  assert.ok(
+    invalid.errors.some((error) =>
+      error.includes("constraints.horizontal is invalid"),
+    ),
+  );
+});
+
 test("rejects mismatched source names and invalid dimensions", () => {
   const input = sources();
   input.variants[0].scene.name = "Wrong name";
