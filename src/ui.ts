@@ -37,6 +37,7 @@ interface ReleaseStateMessage {
     changelog: string;
     publishedAt?: string;
     sourceUrl?: string;
+    sourcesUrl?: string;
     pending: boolean;
     manifest: PerfectLibrariesManifest;
   };
@@ -62,6 +63,7 @@ let parsedManifest: PerfectLibrariesManifest | undefined;
 let inspectedSource = "";
 let busy = false;
 let discoveredRelease: ReleaseStateMessage["release"];
+let loadedReleaseSourcesUrl = "";
 
 saveFeedButton.addEventListener("click", () => {
   parent.postMessage(
@@ -80,6 +82,7 @@ clearFeedButton.addEventListener("click", () => {
 
 editor.addEventListener("input", () => {
   inspectedSource = "";
+  loadedReleaseSourcesUrl = "";
   applyButton.disabled = true;
   renderLocalValidation();
 });
@@ -111,6 +114,7 @@ dropzone.addEventListener("drop", async (event) => {
 demoButton.addEventListener("click", () => {
   editor.value = JSON.stringify(demoManifest, null, 2);
   inspectedSource = "";
+  loadedReleaseSourcesUrl = "";
   applyButton.disabled = true;
   renderLocalValidation();
 });
@@ -126,7 +130,15 @@ inspectButton.addEventListener("click", () => {
   inspectedSource = editor.value;
   setBusy(true);
   parent.postMessage(
-    { pluginMessage: { type: "inspect", manifest: validation.manifest } },
+    {
+      pluginMessage: {
+        type: "inspect",
+        manifest: validation.manifest,
+        ...(loadedReleaseSourcesUrl
+          ? { sourcesUrl: loadedReleaseSourcesUrl }
+          : {}),
+      },
+    },
     "*",
   );
 });
@@ -135,7 +147,15 @@ applyButton.addEventListener("click", () => {
   if (busy || !parsedManifest || editor.value !== inspectedSource) return;
   setBusy(true);
   parent.postMessage(
-    { pluginMessage: { type: "apply", manifest: parsedManifest } },
+    {
+      pluginMessage: {
+        type: "apply",
+        manifest: parsedManifest,
+        ...(loadedReleaseSourcesUrl
+          ? { sourcesUrl: loadedReleaseSourcesUrl }
+          : {}),
+      },
+    },
     "*",
   );
 });
@@ -236,6 +256,7 @@ function renderReleaseState(message: ReleaseStateMessage): void {
 function loadDiscoveredRelease(button: HTMLButtonElement): void {
   if (!discoveredRelease) return;
   editor.value = JSON.stringify(discoveredRelease.manifest, null, 2);
+  loadedReleaseSourcesUrl = discoveredRelease.sourcesUrl ?? "";
   inspectedSource = "";
   applyButton.disabled = true;
   renderLocalValidation();
@@ -252,6 +273,7 @@ async function loadFile(file: File): Promise<void> {
   }
   editor.value = await file.text();
   inspectedSource = "";
+  loadedReleaseSourcesUrl = "";
   applyButton.disabled = true;
   renderLocalValidation();
 }

@@ -79,6 +79,14 @@ const sourceAuditOptions = {
   platform: "node",
 };
 
+const sourceResolutionOptions = {
+  ...common,
+  entryPoints: [new URL("src/source-resolution.ts", root).pathname],
+  outfile: new URL("source-resolution.mjs", dist).pathname,
+  format: "esm",
+  platform: "node",
+};
+
 const semanticSyncPlanOptions = {
   ...common,
   entryPoints: [new URL("src/semantic-sync-plan.ts", root).pathname],
@@ -135,6 +143,7 @@ if (watch) {
     releaseFeedContext.watch(),
     sourcesContext.watch(),
     sourceContractContext.watch(),
+    (await context(sourceResolutionOptions)).watch(),
   ]);
   await Promise.all([buildUi(), buildManifest()]);
   console.log("Perfect Libraries is watching. Re-run the plugin in Figma after changes.");
@@ -148,6 +157,7 @@ if (watch) {
     build(serialOperationQueueOptions),
     build(sourceTextOptions),
     build(sourceAuditOptions),
+    build(sourceResolutionOptions),
     build(semanticSyncPlanOptions),
     build(documentationPlanOptions),
     buildUi(),

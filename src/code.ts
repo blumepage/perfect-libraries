@@ -34,6 +34,10 @@ import {
   selectSourceFontName,
 } from "./source-text";
 import { shouldWarnMissingAutoLayout } from "./source-audit";
+import {
+  missingSourceContextError,
+  selectReleaseSourcesUrl,
+} from "./source-resolution";
 import { createSemanticSyncPlan } from "./semantic-sync-plan";
 import {
   createDocumentationPlan,
@@ -104,8 +108,8 @@ interface ComponentRuntime {
 
 type UiMessage =
   | { type: "initialize" }
-  | { type: "inspect"; manifest: unknown }
-  | { type: "apply"; manifest: unknown }
+  | { type: "inspect"; manifest: unknown; sourcesUrl?: string }
+  | { type: "apply"; manifest: unknown; sourcesUrl?: string }
   | { type: "save-feed"; url: string }
   | { type: "check-feed" }
   | { type: "clear-feed" }
@@ -164,7 +168,8 @@ figma.ui.onmessage = async (message: UiMessage) => {
       postReleaseState({
         configuredUrl: message.url.trim(),
         loading: false,
-        error: "Enter a valid HTTPS manifest or release-feed URL.",
+        error:
+          "Enter a valid HTTPS manifest or release-feed URL, or a localhost URL in development.",
       });
       return;
     }
@@ -194,7 +199,9 @@ figma.ui.onmessage = async (message: UiMessage) => {
     figma.ui.postMessage({ type: "busy", busy: true });
     try {
       figma.ui.postMessage(
-        await manifestOperationQueue.run(() => inspect(message.manifest)),
+        await manifestOperationQueue.run(() =>
+          inspect(message.manifest, message.sourcesUrl),
+        ),
       );
     } finally {
       figma.ui.postMessage({ type: "busy", busy: false });
@@ -206,7 +213,7 @@ figma.ui.onmessage = async (message: UiMessage) => {
     figma.ui.postMessage({ type: "busy", busy: true });
     try {
       const report = await manifestOperationQueue.run(() =>
-        apply(message.manifest),
+        apply(message.manifest, message.sourcesUrl),
       );
       figma.ui.postMessage(report);
       if (report.ok && cachedRelease) {
@@ -342,7 +349,9 @@ function recordAppliedRelease(manifest: PerfectLibrariesManifest): void {
 async function fetchJson(url: string): Promise<unknown> {
   const normalized = normalizeReleaseSourceUrl(url);
   if (!normalized) {
-    throw new Error("Release sources must use HTTPS.");
+    throw new Error(
+      "Release sources must use HTTPS or a local development URL.",
+    );
   }
 
   let timeout: ReturnType<typeof setTimeout> | undefined;
@@ -391,7 +400,10 @@ async function fetchJson(url: string): Promise<unknown> {
   }
 }
 
-async function inspect(input: unknown): Promise<Report & { type: "report" }> {
+async function inspect(
+  input: unknown,
+  requestedSourcesUrl?: string,
+): Promise<Report & { type: "report" }> {
   const validation = validateManifest(input);
   if (!validation.ok || !validation.manifest || !validation.summary) {
     return {
@@ -405,8 +417,17 @@ async function inspect(input: unknown): Promise<Report & { type: "report" }> {
   }
 
   await figma.loadAllPagesAsync();
-  await selectManagedSourcePage(validation.manifest);
-  const resolvedSources = await resolveSourceLookup(validation.manifest);
+  const sourcesUrl = selectReleaseSourcesUrl({
+    libraryId: validation.manifest.library.id,
+    release: validation.manifest.library.release,
+    requestedSourcesUrl,
+    cachedRelease,
+  });
+  await selectManagedSourcePage(validation.manifest, sourcesUrl);
+  const resolvedSources = await resolveSourceLookup(
+    validation.manifest,
+    sourcesUrl,
+  );
   const sourceLookup = resolvedSources.lookup;
   const managed = findManagedSceneNodes(validation.manifest.library.id);
   const autoLayoutWarnings = auditSourceAutoLayout(sourceLookup.nodes);
@@ -438,7 +459,10 @@ async function inspect(input: unknown): Promise<Report & { type: "report" }> {
   };
 }
 
-async function apply(input: unknown): Promise<Report & { type: "report" }> {
+async function apply(
+  input: unknown,
+  requestedSourcesUrl?: string,
+): Promise<Report & { type: "report" }> {
   const validation = validateManifest(input);
   if (!validation.ok || !validation.manifest) {
     return {
@@ -453,8 +477,14 @@ async function apply(input: unknown): Promise<Report & { type: "report" }> {
 
   const manifest = validation.manifest;
   await figma.loadAllPagesAsync();
-  await selectManagedSourcePage(manifest);
-  const resolvedSources = await resolveSourceLookup(manifest);
+  const sourcesUrl = selectReleaseSourcesUrl({
+    libraryId: manifest.library.id,
+    release: manifest.library.release,
+    requestedSourcesUrl,
+    cachedRelease,
+  });
+  await selectManagedSourcePage(manifest, sourcesUrl);
+  const resolvedSources = await resolveSourceLookup(manifest, sourcesUrl);
   const sourceLookup = resolvedSources.lookup;
   const sourceWarnings = resolvedSources.warnings;
   if (resolvedSources.sourceErrors.length > 0) {
@@ -587,21 +617,34 @@ async function apply(input: unknown): Promise<Report & { type: "report" }> {
 
 async function resolveSourceLookup(
   manifest: PerfectLibrariesManifest,
+  sourcesUrl?: string,
 ): Promise<ResolvedSourceLookup> {
-  const release = cachedRelease;
-  const matchesCachedRelease =
-    release?.libraryId === manifest.library.id &&
-    release.release === manifest.library.release;
-  if (!matchesCachedRelease || !release?.sourcesUrl) {
+  if (!sourcesUrl) {
+    const lookup = findSourceNodes(manifest);
+    const variantCount = manifest.components.reduce(
+      (count, component) => count + component.variants.length,
+      0,
+    );
+    if (variantCount > 0 && lookup.nodes.size === 0) {
+      return {
+        lookup: {
+          nodes: lookup.nodes,
+          warnings: lookup.warnings,
+          errors: [missingSourceContextError(variantCount)],
+        },
+        warnings: [],
+        sourceErrors: [],
+      };
+    }
     return {
-      lookup: findSourceNodes(manifest),
+      lookup,
       warnings: [],
       sourceErrors: [],
     };
   }
 
   try {
-    const input = await fetchJson(release.sourcesUrl);
+    const input = await fetchJson(sourcesUrl);
     const sources = validateSources(input);
     if (!sources.ok || !sources.sources) {
       return {
@@ -2052,15 +2095,9 @@ function findManagedPage(
 
 async function selectManagedSourcePage(
   manifest: PerfectLibrariesManifest,
+  sourcesUrl?: string,
 ): Promise<void> {
-  const release = cachedRelease;
-  if (
-    release?.libraryId !== manifest.library.id ||
-    release.release !== manifest.library.release ||
-    !release.sourcesUrl
-  ) {
-    return;
-  }
+  if (!sourcesUrl) return;
   let page = findManagedPage(manifest.library.id, "sources");
   if (!page) {
     page = figma.createPage() as ManagedPage;
