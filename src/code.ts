@@ -2210,11 +2210,11 @@ const DOCUMENTATION_CARD_PADDING = 56;
 const DOCUMENTATION_CONTENT_WIDTH =
   DOCUMENTATION_CARD_WIDTH - DOCUMENTATION_CARD_PADDING * 2;
 const DOCUMENTATION_COLUMN_GAP = 32;
-const DOCUMENTATION_PREVIEW_WIDTH = 800;
-const DOCUMENTATION_DETAILS_WIDTH =
-  DOCUMENTATION_CONTENT_WIDTH -
-  DOCUMENTATION_PREVIEW_WIDTH -
-  DOCUMENTATION_COLUMN_GAP;
+const DOCUMENTATION_COLUMNS_WIDTH =
+  DOCUMENTATION_CONTENT_WIDTH - DOCUMENTATION_COLUMN_GAP;
+const DOCUMENTATION_COLUMN_UNIT = DOCUMENTATION_COLUMNS_WIDTH / 5;
+const DOCUMENTATION_PREVIEW_WIDTH = DOCUMENTATION_COLUMN_UNIT * 3;
+const DOCUMENTATION_DETAILS_WIDTH = DOCUMENTATION_COLUMN_UNIT * 2;
 
 function findManagedPage(
   libraryId: string,
@@ -2482,8 +2482,8 @@ function addDocumentationGuidance(
   const panel = createDocumentationFrame(
     "How to work with this component",
     width,
-    10,
-    20,
+    4,
+    12,
   );
   setDocumentationFill(
     panel,
@@ -2506,9 +2506,9 @@ function addDocumentationGuidance(
     createDocumentationText(
       "How to work with this component",
       fonts.heading,
+      14,
       18,
-      24,
-      width - 40,
+      width - 24,
       DOCUMENTATION_COLORS.textStrong,
       "text-strong",
       variables,
@@ -2520,9 +2520,9 @@ function addDocumentationGuidance(
       createDocumentationText(
         `•  ${line}`,
         fonts.body,
+        8,
         12,
-        18,
-        width - 40,
+        width - 24,
         DOCUMENTATION_COLORS.textBody,
         "text-body",
         variables,
@@ -2543,10 +2543,10 @@ function createDocumentationPill(
   pill.counterAxisSizingMode = "AUTO";
   pill.primaryAxisAlignItems = "CENTER";
   pill.counterAxisAlignItems = "CENTER";
-  pill.paddingTop = 8;
-  pill.paddingRight = 12;
-  pill.paddingBottom = 8;
-  pill.paddingLeft = 12;
+  pill.paddingTop = 4;
+  pill.paddingRight = 7;
+  pill.paddingBottom = 4;
+  pill.paddingLeft = 7;
   pill.fills = [];
   setDocumentationFill(
     pill,
@@ -2558,8 +2558,8 @@ function createDocumentationPill(
   const text = createDocumentationText(
     label,
     fonts.bodyMedium,
+    9,
     12,
-    16,
     240,
     DOCUMENTATION_COLORS.textMuted,
     "text-muted",
@@ -2586,9 +2586,9 @@ function addDocumentationMetrics(
   row.counterAxisSizingMode = "AUTO";
   row.primaryAxisAlignItems = "MIN";
   row.counterAxisAlignItems = "CENTER";
-  row.itemSpacing = 10;
-  row.counterAxisSpacing = 10;
-  row.resizeWithoutConstraints(width, 40);
+  row.itemSpacing = 6;
+  row.counterAxisSpacing = 6;
+  row.resizeWithoutConstraints(width, 24);
   row.fills = [];
   for (const label of [
     component.group,
@@ -2684,17 +2684,17 @@ function createDocumentationTypeBadge(
   badge.counterAxisSizingMode = "AUTO";
   badge.primaryAxisAlignItems = "CENTER";
   badge.counterAxisAlignItems = "CENTER";
-  badge.paddingTop = 5;
-  badge.paddingRight = 9;
-  badge.paddingBottom = 5;
-  badge.paddingLeft = 9;
+  badge.paddingTop = 3;
+  badge.paddingRight = 6;
+  badge.paddingBottom = 3;
+  badge.paddingLeft = 6;
   badge.cornerRadius = 999;
   badge.fills = [documentationPaint(colors.background)];
   const text = createDocumentationText(
     label.toUpperCase().replace("_", " "),
     fonts.bodyMedium,
+    8,
     10,
-    14,
     180,
     colors.text,
     "__documentation-type-badge",
@@ -2715,7 +2715,7 @@ function addDocumentationDataPanel(
   width: number,
 ): void {
   if (rows.length === 0) return;
-  const panel = createDocumentationFrame(title, width, 10, 16);
+  const panel = createDocumentationFrame(title, width, 2, 12);
   setDocumentationFill(
     panel,
     DOCUMENTATION_COLORS.inner,
@@ -2737,9 +2737,9 @@ function addDocumentationDataPanel(
     createDocumentationText(
       title,
       fonts.heading,
-      16,
-      22,
-      width - 32,
+      13,
+      17,
+      width - 24,
       DOCUMENTATION_COLORS.textStrong,
       "text-strong",
       variables,
@@ -2747,43 +2747,38 @@ function addDocumentationDataPanel(
   );
 
   for (const rowDefinition of rows) {
-    const row = createDocumentationFrame(
-      rowDefinition.name,
-      width - 32,
-      6,
-      12,
-    );
+    const row = figma.createFrame();
+    row.name = rowDefinition.name;
+    row.layoutMode = "HORIZONTAL";
+    row.primaryAxisSizingMode = "FIXED";
+    row.counterAxisSizingMode = "AUTO";
+    row.primaryAxisAlignItems = "MIN";
+    row.counterAxisAlignItems = "CENTER";
+    row.itemSpacing = 6;
+    row.paddingTop = 5;
+    row.paddingRight = 8;
+    row.paddingBottom = 5;
+    row.paddingLeft = 8;
+    row.resizeWithoutConstraints(width - 24, 20);
     setDocumentationFill(row, DOCUMENTATION_COLORS.card, "bg-card", variables);
-    setDocumentationRadius(row, 8, "radius-control", variables);
+    setDocumentationRadius(row, 4, "radius-control", variables);
     panel.appendChild(row);
     row.layoutSizingHorizontal = "FILL";
-
-    const heading = figma.createFrame();
-    heading.name = `${rowDefinition.name} heading`;
-    heading.layoutMode = "HORIZONTAL";
-    heading.primaryAxisSizingMode = "FIXED";
-    heading.counterAxisSizingMode = "AUTO";
-    heading.primaryAxisAlignItems = "SPACE_BETWEEN";
-    heading.counterAxisAlignItems = "CENTER";
-    heading.itemSpacing = 12;
-    heading.resizeWithoutConstraints(width - 56, 22);
-    heading.fills = [];
-    row.appendChild(heading);
-    heading.layoutSizingHorizontal = "FILL";
 
     const name = createDocumentationText(
       rowDefinition.name,
       fonts.bodyMedium,
-      12,
-      18,
-      width - 220,
+      8,
+      10,
+      104,
       DOCUMENTATION_COLORS.textStrong,
       "text-strong",
       variables,
     );
-    heading.appendChild(name);
-    name.layoutSizingHorizontal = "FILL";
-    heading.appendChild(
+    name.textTruncation = "ENDING";
+    name.maxLines = 1;
+    row.appendChild(name);
+    row.appendChild(
       createDocumentationTypeBadge(
         rowDefinition.type,
         fonts,
@@ -2791,36 +2786,24 @@ function addDocumentationDataPanel(
       ),
     );
 
-    if (rowDefinition.details) {
-      appendDocumentationText(
-        row,
-        createDocumentationText(
-          rowDefinition.details,
-          fonts.body,
-          11,
-          16,
-          width - 56,
-          DOCUMENTATION_COLORS.textBody,
-          "text-body",
-          variables,
-        ),
-      );
-    }
-    if (rowDefinition.description) {
-      appendDocumentationText(
-        row,
-        createDocumentationText(
-          rowDefinition.description,
-          fonts.body,
-          11,
-          16,
-          width - 56,
-          DOCUMENTATION_COLORS.textMuted,
-          "text-muted",
-          variables,
-        ),
-      );
-    }
+    const summary = [rowDefinition.details, rowDefinition.description]
+      .filter(Boolean)
+      .join(" · ")
+      .replace(/\s+/g, " ");
+    const details = createDocumentationText(
+      summary || "—",
+      fonts.body,
+      8,
+      10,
+      Math.max(120, width - 260),
+      DOCUMENTATION_COLORS.textBody,
+      "text-body",
+      variables,
+    );
+    details.textTruncation = "ENDING";
+    details.maxLines = 1;
+    row.appendChild(details);
+    details.layoutSizingHorizontal = "FILL";
   }
 }
 
@@ -3095,7 +3078,7 @@ function buildComponentDocumentationCard(
   const detailsColumn = createDocumentationFrame(
     "Details",
     DOCUMENTATION_DETAILS_WIDTH,
-    20,
+    10,
     0,
   );
   detailsColumn.fills = [];
@@ -3105,8 +3088,8 @@ function buildComponentDocumentationCard(
     createDocumentationText(
       "Component reference",
       fonts.heading,
+      14,
       18,
-      24,
       DOCUMENTATION_DETAILS_WIDTH,
       DOCUMENTATION_COLORS.textStrong,
       "text-strong",
