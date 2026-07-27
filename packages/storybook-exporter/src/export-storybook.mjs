@@ -69,6 +69,44 @@ function storyUrl(baseUrl, variantId) {
   return url.toString();
 }
 
+async function captureVariant(browser, baseUrl, captureScript, variant) {
+  const page = await browser.newPage({ viewport: { width: 1200, height: 900 } });
+  const pageErrors = [];
+  page.on("pageerror", (error) => pageErrors.push(error.message));
+  try {
+    await page.goto(storyUrl(baseUrl, variant.id), {
+      waitUntil: "networkidle",
+    });
+    await page.addScriptTag({ content: captureScript });
+    const locator = page.locator(
+      `[data-figma-source-node="${variant.sourceNode.replaceAll('"', '\\"')}"]`,
+    );
+    try {
+      await locator.waitFor({ state: "visible", timeout: 30_000 });
+    } catch (error) {
+      const storyText = await page
+        .locator("body")
+        .innerText({ timeout: 2_000 })
+        .catch(() => "");
+      const detail = [
+        ...pageErrors,
+        storyText.trim().slice(0, 800),
+      ].filter(Boolean);
+      throw new Error(
+        `${variant.sourceNode} did not render in Storybook.${detail.length ? ` ${detail.join(" ")}` : ""}`,
+        { cause: error },
+      );
+    }
+    await page.evaluate(() => document.fonts?.ready);
+    return await page.evaluate(
+      ({ sourceNode }) => window.PerfectLibraries.captureSource(sourceNode),
+      { sourceNode: variant.sourceNode },
+    );
+  } finally {
+    await page.close();
+  }
+}
+
 export async function exportStorybookSources(options) {
   const [configText, captureScript] = await Promise.all([
     fs.readFile(options.configPath, "utf8"),
@@ -87,20 +125,14 @@ export async function exportStorybookSources(options) {
     headless: true,
     ...(options.browserExecutable ? { executablePath: options.browserExecutable } : {}),
   });
-  const page = await browser.newPage({ viewport: { width: 1200, height: 900 } });
   const variants = [];
   try {
     for (const variant of expected) {
-      await page.goto(storyUrl(server.url, variant.id), { waitUntil: "networkidle" });
-      await page.addScriptTag({ content: captureScript });
-      await page.locator(`[data-figma-source-node="${variant.sourceNode.replaceAll('"', '\\"')}"]`).waitFor({
-        state: "visible",
-        timeout: 15_000,
-      });
-      await page.evaluate(() => document.fonts?.ready);
-      const captured = await page.evaluate(
-        ({ sourceNode }) => window.PerfectLibraries.captureSource(sourceNode),
-        { sourceNode: variant.sourceNode },
+      const captured = await captureVariant(
+        browser,
+        server.url,
+        captureScript,
+        variant,
       );
       if (!captured?.scene) {
         throw new Error(`Storybook did not produce source "${variant.sourceNode}".`);
