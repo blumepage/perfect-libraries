@@ -188,6 +188,24 @@ async function ingestRelease(request: Request, env: Env): Promise<Response> {
     );
   }
   if (
+    existing?.release.status === "published" &&
+    input.release.version === existing.release.version
+  ) {
+    return json(
+      {
+        ok: true,
+        alreadyPublished: true,
+        feedUrl: feedUrl(request, input.library.id),
+        manifestUrl: existing.release.manifestUrl,
+        ...(existing.release.sourcesUrl
+          ? { sourcesUrl: existing.release.sourcesUrl }
+          : {}),
+        release: toPublicReleaseFeed(existing),
+      },
+      200,
+    );
+  }
+  if (
     existing &&
     compareSemver(input.release.version, existing.release.version) < 0
   ) {

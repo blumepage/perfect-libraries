@@ -201,6 +201,48 @@ test("allows an idempotent retry of the same pending release version", async () 
   assert.equal(response.release.latest.status, "pending");
 });
 
+test("does not reopen an already published release on a same-version retry", async () => {
+  const testEnv = env();
+  const payload = releasePayload("1.2.0");
+  await handleRequest(ingestRequest(payload), testEnv);
+  await handleRequest(
+    new Request("https://service.test/v1/figma/webhooks", {
+      method: "POST",
+      body: JSON.stringify({
+        event_type: "LIBRARY_PUBLISH",
+        passcode: "figma-secret",
+        timestamp: "2026-07-24T11:00:00.000Z",
+        webhook_id: "event-published",
+        file_key: "Abcdefgh1234",
+        file_name: "Example UI",
+      }),
+    }),
+    testEnv,
+  );
+
+  const retried = await handleRequest(ingestRequest(payload), testEnv);
+  assert.equal(retried.status, 200);
+  const response = (await retried.json()) as {
+    alreadyPublished: boolean;
+    release: PublicReleaseFeed;
+  };
+  assert.equal(response.alreadyPublished, true);
+  assert.equal(response.release.latest.release, "1.2.0");
+  assert.equal(response.release.latest.status, "published");
+
+  const feed = await handleRequest(
+    new Request(
+      "https://service.test/v1/libraries/dev.example.ui/releases/latest",
+    ),
+    testEnv,
+  );
+  assert.equal(feed.status, 200);
+  assert.equal(
+    ((await feed.json()) as PublicReleaseFeed).latest.status,
+    "published",
+  );
+});
+
 test("records an idempotent Figma publish event in the public feed", async () => {
   const kv = new MemoryKv();
   const testEnv = env(kv);
