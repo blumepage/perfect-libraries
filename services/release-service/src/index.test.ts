@@ -155,6 +155,52 @@ test("enforces configured library ids and rejects a release downgrade", async ()
   }
 });
 
+test("keeps a pending release immutable across different versions", async () => {
+  const testEnv = env();
+  const first = await handleRequest(
+    ingestRequest(releasePayload("1.2.0")),
+    testEnv,
+  );
+  assert.equal(first.status, 201);
+
+  const replacement = await handleRequest(
+    ingestRequest(releasePayload("1.3.0")),
+    testEnv,
+  );
+  assert.equal(replacement.status, 409);
+  assert.deepEqual(await replacement.json(), {
+    error:
+      "Cannot replace pending release 1.2.0 with 1.3.0. Publish or clear the pending release first.",
+  });
+
+  const feed = await handleRequest(
+    new Request(
+      "https://service.test/v1/libraries/dev.example.ui/releases/latest",
+    ),
+    testEnv,
+  );
+  assert.equal(feed.status, 200);
+  const release = (await feed.json()) as PublicReleaseFeed;
+  assert.equal(release.latest.release, "1.2.0");
+  assert.equal(release.latest.status, "pending");
+});
+
+test("allows an idempotent retry of the same pending release version", async () => {
+  const testEnv = env();
+  const payload = releasePayload("1.2.0");
+
+  const first = await handleRequest(ingestRequest(payload), testEnv);
+  assert.equal(first.status, 201);
+
+  const retried = await handleRequest(ingestRequest(payload), testEnv);
+  assert.equal(retried.status, 201);
+  const response = (await retried.json()) as {
+    release: PublicReleaseFeed;
+  };
+  assert.equal(response.release.latest.release, "1.2.0");
+  assert.equal(response.release.latest.status, "pending");
+});
+
 test("records an idempotent Figma publish event in the public feed", async () => {
   const kv = new MemoryKv();
   const testEnv = env(kv);

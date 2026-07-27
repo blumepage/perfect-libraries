@@ -177,6 +177,17 @@ async function ingestRelease(request: Request, env: Env): Promise<Response> {
     "json",
   );
   if (
+    existing?.release.status === "pending" &&
+    input.release.version !== existing.release.version
+  ) {
+    return json(
+      {
+        error: `Cannot replace pending release ${existing.release.version} with ${input.release.version}. Publish or clear the pending release first.`,
+      },
+      409,
+    );
+  }
+  if (
     existing &&
     compareSemver(input.release.version, existing.release.version) < 0
   ) {
