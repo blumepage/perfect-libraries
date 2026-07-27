@@ -2134,7 +2134,13 @@ const DOCUMENTATION_COLORS = {
   textStrong: "#2f2a22",
   textBody: "#51493d",
   textMuted: "#7b705f",
+  accent: "#6552c8",
 };
+const DOCUMENTATION_ROOT_WIDTH = 1600;
+const DOCUMENTATION_CARD_WIDTH = 1440;
+const DOCUMENTATION_CARD_PADDING = 56;
+const DOCUMENTATION_CONTENT_WIDTH =
+  DOCUMENTATION_CARD_WIDTH - DOCUMENTATION_CARD_PADDING * 2;
 
 function findManagedPage(
   libraryId: string,
@@ -2349,7 +2355,12 @@ function addDocumentationSection(
   variables: Map<string, Variable>,
 ): void {
   if (lines.length === 0) return;
-  const section = createDocumentationFrame(title, 1120, 10, 0);
+  const section = createDocumentationFrame(
+    title,
+    DOCUMENTATION_CONTENT_WIDTH,
+    10,
+    0,
+  );
   section.fills = [];
   card.appendChild(section);
   section.layoutSizingHorizontal = "FILL";
@@ -2360,7 +2371,7 @@ function addDocumentationSection(
       fonts.heading,
       20,
       28,
-      1120,
+      DOCUMENTATION_CONTENT_WIDTH,
       DOCUMENTATION_COLORS.textStrong,
       "text-strong",
       variables,
@@ -2374,13 +2385,142 @@ function addDocumentationSection(
         fonts.body,
         14,
         21,
-        1120,
+        DOCUMENTATION_CONTENT_WIDTH,
         DOCUMENTATION_COLORS.textBody,
         "text-body",
         variables,
       ),
     );
   }
+}
+
+function addDocumentationGuidance(
+  card: FrameNode,
+  lines: string[],
+  fonts: DocumentationFonts,
+  variables: Map<string, Variable>,
+): void {
+  if (lines.length === 0) return;
+  const panel = createDocumentationFrame(
+    "How to work with this component",
+    DOCUMENTATION_CONTENT_WIDTH,
+    14,
+    28,
+  );
+  setDocumentationFill(
+    panel,
+    DOCUMENTATION_COLORS.inner,
+    "bg-inner",
+    variables,
+  );
+  setDocumentationStroke(
+    panel,
+    DOCUMENTATION_COLORS.borderSubtle,
+    "border-subtle",
+    variables,
+  );
+  panel.strokeWeight = 1;
+  setDocumentationRadius(panel, 14, "radius-card", variables);
+  card.appendChild(panel);
+  panel.layoutSizingHorizontal = "FILL";
+  appendDocumentationText(
+    panel,
+    createDocumentationText(
+      "How to work with this component",
+      fonts.heading,
+      22,
+      30,
+      DOCUMENTATION_CONTENT_WIDTH - 56,
+      DOCUMENTATION_COLORS.textStrong,
+      "text-strong",
+      variables,
+    ),
+  );
+  for (const line of lines) {
+    appendDocumentationText(
+      panel,
+      createDocumentationText(
+        `•  ${line}`,
+        fonts.body,
+        15,
+        23,
+        DOCUMENTATION_CONTENT_WIDTH - 56,
+        DOCUMENTATION_COLORS.textBody,
+        "text-body",
+        variables,
+      ),
+    );
+  }
+}
+
+function createDocumentationPill(
+  label: string,
+  fonts: DocumentationFonts,
+  variables: Map<string, Variable>,
+): FrameNode {
+  const pill = figma.createFrame();
+  pill.name = label;
+  pill.layoutMode = "HORIZONTAL";
+  pill.primaryAxisSizingMode = "AUTO";
+  pill.counterAxisSizingMode = "AUTO";
+  pill.primaryAxisAlignItems = "CENTER";
+  pill.counterAxisAlignItems = "CENTER";
+  pill.paddingTop = 8;
+  pill.paddingRight = 12;
+  pill.paddingBottom = 8;
+  pill.paddingLeft = 12;
+  pill.fills = [];
+  setDocumentationFill(
+    pill,
+    DOCUMENTATION_COLORS.subtle,
+    "bg-subtle",
+    variables,
+  );
+  setDocumentationRadius(pill, 999, "radius-pill", variables);
+  const text = createDocumentationText(
+    label,
+    fonts.bodyMedium,
+    12,
+    16,
+    240,
+    DOCUMENTATION_COLORS.textMuted,
+    "text-muted",
+    variables,
+  );
+  text.textAutoResize = "WIDTH_AND_HEIGHT";
+  pill.appendChild(text);
+  text.layoutSizingHorizontal = "HUG";
+  return pill;
+}
+
+function addDocumentationMetrics(
+  card: FrameNode,
+  component: DocumentationComponent,
+  fonts: DocumentationFonts,
+  variables: Map<string, Variable>,
+): void {
+  const row = figma.createFrame();
+  row.name = "Component summary";
+  row.layoutMode = "HORIZONTAL";
+  row.layoutWrap = "WRAP";
+  row.primaryAxisSizingMode = "FIXED";
+  row.counterAxisSizingMode = "AUTO";
+  row.primaryAxisAlignItems = "MIN";
+  row.counterAxisAlignItems = "CENTER";
+  row.itemSpacing = 10;
+  row.counterAxisSpacing = 10;
+  row.resizeWithoutConstraints(DOCUMENTATION_CONTENT_WIDTH, 40);
+  row.fills = [];
+  for (const label of [
+    component.group,
+    `${component.combinations.length} configuration${component.combinations.length === 1 ? "" : "s"}`,
+    `${component.axes.length} variant ${component.axes.length === 1 ? "axis" : "axes"}`,
+    `${component.properties.length} editable ${component.properties.length === 1 ? "property" : "properties"}`,
+  ]) {
+    row.appendChild(createDocumentationPill(label, fonts, variables));
+  }
+  card.appendChild(row);
+  row.layoutSizingHorizontal = "FILL";
 }
 
 function formatDefaultValue(value: unknown): string {
@@ -2431,13 +2571,13 @@ function buildCombinationGallery(
   gallery.counterAxisSizingMode = "AUTO";
   gallery.primaryAxisAlignItems = "MIN";
   gallery.counterAxisAlignItems = "MIN";
-  gallery.itemSpacing = 16;
-  gallery.counterAxisSpacing = 16;
-  gallery.paddingTop = 24;
-  gallery.paddingRight = 24;
-  gallery.paddingBottom = 24;
-  gallery.paddingLeft = 24;
-  gallery.resizeWithoutConstraints(1120, 100);
+  gallery.itemSpacing = 20;
+  gallery.counterAxisSpacing = 20;
+  gallery.paddingTop = 32;
+  gallery.paddingRight = 32;
+  gallery.paddingBottom = 32;
+  gallery.paddingLeft = 32;
+  gallery.resizeWithoutConstraints(DOCUMENTATION_CONTENT_WIDTH, 100);
   setDocumentationFill(
     gallery,
     DOCUMENTATION_COLORS.inner,
@@ -2457,11 +2597,14 @@ function buildCombinationGallery(
     const variant = runtime.variants.get(combination.variantId);
     if (!variant) continue;
     const instance = variant.createInstance();
-    const tileWidth = Math.max(240, Math.min(520, instance.width + 48));
+    const tileWidth = Math.max(
+      300,
+      Math.min(DOCUMENTATION_CONTENT_WIDTH - 64, instance.width + 72),
+    );
     const tile = createDocumentationFrame(
       combination.label,
       tileWidth,
-      16,
+      14,
       20,
     );
     setDocumentationFill(
@@ -2475,8 +2618,21 @@ function buildCombinationGallery(
       tile,
       createDocumentationText(
         combination.label,
-        fonts.bodyMedium,
-        13,
+        fonts.heading,
+        17,
+        23,
+        tileWidth - 40,
+        DOCUMENTATION_COLORS.textStrong,
+        "text-strong",
+        variables,
+      ),
+    );
+    appendDocumentationText(
+      tile,
+      createDocumentationText(
+        combination.explanation,
+        fonts.body,
+        12,
         18,
         tileWidth - 40,
         DOCUMENTATION_COLORS.textMuted,
@@ -2484,7 +2640,34 @@ function buildCombinationGallery(
         variables,
       ),
     );
-    tile.appendChild(instance);
+    const stage = figma.createFrame();
+    stage.name = "Live component preview";
+    stage.layoutMode = "HORIZONTAL";
+    stage.primaryAxisSizingMode = "FIXED";
+    stage.counterAxisSizingMode = "FIXED";
+    stage.primaryAxisAlignItems = "CENTER";
+    stage.counterAxisAlignItems = "CENTER";
+    stage.resizeWithoutConstraints(
+      tileWidth - 40,
+      Math.max(112, instance.height + 48),
+    );
+    setDocumentationFill(
+      stage,
+      DOCUMENTATION_COLORS.subtle,
+      "bg-subtle",
+      variables,
+    );
+    setDocumentationStroke(
+      stage,
+      DOCUMENTATION_COLORS.borderSubtle,
+      "border-subtle",
+      variables,
+    );
+    stage.strokeWeight = 1;
+    setDocumentationRadius(stage, 10, "radius-control", variables);
+    stage.appendChild(instance);
+    tile.appendChild(stage);
+    stage.layoutSizingHorizontal = "FILL";
     gallery.appendChild(tile);
     tagManaged(
       tile as ManagedSceneNode,
@@ -2503,7 +2686,12 @@ function buildComponentDocumentationCard(
   fonts: DocumentationFonts,
   variables: Map<string, Variable>,
 ): FrameNode {
-  const card = createDocumentationFrame(component.name, 1280, 28, 40);
+  const card = createDocumentationFrame(
+    component.name,
+    DOCUMENTATION_CARD_WIDTH,
+    36,
+    DOCUMENTATION_CARD_PADDING,
+  );
   setDocumentationFill(card, DOCUMENTATION_COLORS.card, "bg-card", variables);
   setDocumentationStroke(
     card,
@@ -2536,9 +2724,9 @@ function buildComponentDocumentationCard(
     createDocumentationText(
       component.name,
       fonts.heading,
-      38,
-      46,
-      1200,
+      52,
+      60,
+      DOCUMENTATION_CONTENT_WIDTH,
       DOCUMENTATION_COLORS.textStrong,
       "text-strong",
       variables,
@@ -2550,23 +2738,24 @@ function buildComponentDocumentationCard(
       createDocumentationText(
         component.description,
         fonts.body,
-        17,
-        26,
-        1200,
+        19,
+        29,
+        DOCUMENTATION_CONTENT_WIDTH,
         DOCUMENTATION_COLORS.textBody,
         "text-body",
         variables,
       ),
     );
   }
+  addDocumentationMetrics(card, component, fonts, variables);
   if (component.documentationUrl) {
     const link = createDocumentationText(
       "Open this component in Storybook ↗",
       fonts.bodyMedium,
       14,
       20,
-      1200,
-      "#6552c8",
+      DOCUMENTATION_CONTENT_WIDTH,
+      DOCUMENTATION_COLORS.accent,
       "accent-bluebell",
       variables,
     );
@@ -2574,6 +2763,7 @@ function buildComponentDocumentationCard(
     appendDocumentationText(card, link);
   }
 
+  addDocumentationGuidance(card, component.guidance, fonts, variables);
   addDocumentationSection(
     card,
     "Variant axes",
@@ -2610,7 +2800,9 @@ function buildComponentDocumentationCard(
   addDocumentationSection(
     card,
     `Supported combinations · ${component.combinations.length}`,
-    ["The gallery below shows every supported Storybook combination exactly as declared."],
+    [
+      "Each card below is a live instance of the publishable component. Its label and explanation come from the same Storybook properties used to generate the variant.",
+    ],
     fonts,
     variables,
   );
@@ -2634,7 +2826,12 @@ function buildGroupDocumentationRoot(
   variables: Map<string, Variable>,
   counters: SyncCounters,
 ): FrameNode {
-  const root = createDocumentationFrame(group.name, 1440, 40, 80);
+  const root = createDocumentationFrame(
+    group.name,
+    DOCUMENTATION_ROOT_WIDTH,
+    48,
+    80,
+  );
   root.fills = [];
   tagManaged(
     root as ManagedSceneNode,
@@ -2649,7 +2846,7 @@ function buildGroupDocumentationRoot(
       fonts.heading,
       48,
       56,
-      1280,
+      DOCUMENTATION_CARD_WIDTH,
       DOCUMENTATION_COLORS.textStrong,
       "text-strong",
       variables,
@@ -2662,7 +2859,7 @@ function buildGroupDocumentationRoot(
       fonts.body,
       17,
       26,
-      1280,
+      DOCUMENTATION_CARD_WIDTH,
       DOCUMENTATION_COLORS.textMuted,
       "text-muted",
       variables,

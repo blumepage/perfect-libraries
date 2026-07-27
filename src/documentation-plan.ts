@@ -12,11 +12,14 @@ export interface DocumentationAxis {
 export interface DocumentationCombination {
   variantId: string;
   label: string;
+  explanation: string;
+  properties: Array<{ name: string; value: string }>;
 }
 
 export interface DocumentationComponent {
   id: string;
   name: string;
+  group: string;
   description: string;
   documentationUrl?: string;
   properties: ComponentPropertyDefinition[];
@@ -25,6 +28,7 @@ export interface DocumentationComponent {
   controls: StorybookControlDefinition[];
   uses: string[];
   usedBy: string[];
+  guidance: string[];
 }
 
 export interface DocumentationGroup {
@@ -64,6 +68,61 @@ function groupOrder(left: string, right: string): number {
   return left.localeCompare(right);
 }
 
+function naturalList(values: string[]): string {
+  if (values.length === 0) return "";
+  if (values.length === 1) return values[0] ?? "";
+  if (values.length === 2) return `${values[0]} and ${values[1]}`;
+  return `${values.slice(0, -1).join(", ")}, and ${values.at(-1)}`;
+}
+
+function combinationExplanation(
+  properties: Array<{ name: string; value: string }>,
+): string {
+  if (properties.length === 0) {
+    return "The default configuration from Storybook.";
+  }
+  return `${properties
+    .map(({ name, value }) => `${name} is set to ${value}`)
+    .join(". ")}.`;
+}
+
+function componentGuidance(
+  axes: DocumentationAxis[],
+  properties: ComponentPropertyDefinition[],
+  controls: StorybookControlDefinition[],
+  hasStorybookLink: boolean,
+): string[] {
+  const guidance: string[] = [];
+  if (axes.length > 0) {
+    guidance.push(
+      `Choose ${naturalList(axes.map((axis) => axis.name))} through the component variant controls. The supported values are documented below.`,
+    );
+  } else {
+    guidance.push(
+      "This component has one supported visual configuration in the current library release.",
+    );
+  }
+  if (properties.length > 0) {
+    guidance.push(
+      `Customize ${naturalList(properties.map((property) => property.name))} through Figma component properties so the instance stays connected to the library.`,
+    );
+  } else {
+    guidance.push(
+      "Keep the component as a linked instance so future library updates continue to apply.",
+    );
+  }
+  if (controls.length > 0 && hasStorybookLink) {
+    guidance.push(
+      `Use the linked Storybook story to exercise ${naturalList(controls.map((control) => control.label ?? control.name))} and review interactive behavior.`,
+    );
+  } else if (hasStorybookLink) {
+    guidance.push(
+      "Use the linked Storybook story as the implementation and behavior reference.",
+    );
+  }
+  return guidance;
+}
+
 export function createDocumentationPlan(
   components: ComponentDefinition[],
 ): DocumentationPlan {
@@ -93,16 +152,19 @@ export function createDocumentationPlan(
       component.documentation?.groupId ?? fallbackGroupId(group);
     const axes = new Map<string, string[]>();
     const combinations = component.variants.map((variant) => {
-      for (const [name, value] of Object.entries(variant.properties)) {
+      const properties = Object.entries(variant.properties).map(
+        ([name, value]) => ({ name, value }),
+      );
+      for (const { name, value } of properties) {
         const values = axes.get(name) ?? [];
         if (!values.includes(value)) values.push(value);
         axes.set(name, values);
       }
       return {
         variantId: variant.id,
-        label: Object.entries(variant.properties)
-          .map(([name, value]) => `${name}=${value}`)
-          .join(" · "),
+        label: properties.map(({ value }) => value).join(" · ") || "Default",
+        explanation: combinationExplanation(properties),
+        properties,
       };
     });
     const dependencies = new Set([
@@ -111,22 +173,34 @@ export function createDocumentationPlan(
         (variant.nestedInstances ?? []).map((nested) => nested.component),
       ),
     ]);
+    const documentationAxes = [...axes.entries()].map(([name, values]) => ({
+      name,
+      values,
+    }));
+    const controls = component.documentation?.controls ?? [];
     const documentation: DocumentationComponent = {
       id: component.id,
       name: component.name,
+      group,
       description: component.description ?? "",
       ...(component.documentationUrl
         ? { documentationUrl: component.documentationUrl }
         : {}),
       properties: component.properties ?? [],
-      axes: [...axes.entries()].map(([name, values]) => ({ name, values })),
+      axes: documentationAxes,
       combinations,
-      controls: component.documentation?.controls ?? [],
+      controls,
       uses: [...dependencies].map(
         (dependency) => names.get(dependency) ?? dependency,
       ),
       usedBy: [...(reverseDependencies.get(component.id) ?? [])].map(
         (dependent) => names.get(dependent) ?? dependent,
+      ),
+      guidance: componentGuidance(
+        documentationAxes,
+        component.properties ?? [],
+        controls,
+        Boolean(component.documentationUrl),
       ),
     };
     const grouped = groups.get(groupId);

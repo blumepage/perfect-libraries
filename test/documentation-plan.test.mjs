@@ -46,10 +46,48 @@ test("documentation plan keeps exact combinations and reverse relationships", ()
   ]);
   assert.deepEqual(
     button.combinations.map((combination) => combination.label),
-    ["Style=Primary · Size=Small", "Style=Link · Size=Medium"],
+    ["Primary · Small", "Link · Medium"],
   );
+  assert.deepEqual(button.combinations[0].properties, [
+    { name: "Style", value: "Primary" },
+    { name: "Size", value: "Small" },
+  ]);
+  assert.equal(
+    button.combinations[0].explanation,
+    "Style is set to Primary. Size is set to Small.",
+  );
+  assert.equal(button.group, "Controls");
+  assert.deepEqual(button.guidance, [
+    "Choose Style and Size through the component variant controls. The supported values are documented below.",
+    "Keep the component as a linked instance so future library updates continue to apply.",
+  ]);
   assert.deepEqual(button.uses, ["Heading"]);
   assert.deepEqual(plan.groups[0].components[0].usedBy, ["Button"]);
+});
+
+test("documentation copy remains complete for a component without variant axes", () => {
+  const plan = createDocumentationPlan([
+    {
+      id: "divider",
+      name: "Divider",
+      documentationUrl: "https://storybook.example.test/divider",
+      variants: [
+        { id: "divider-default", sourceNode: "Divider", properties: {} },
+      ],
+    },
+  ]);
+
+  const divider = plan.groups[0].components[0];
+  assert.equal(divider.combinations[0].label, "Default");
+  assert.equal(
+    divider.combinations[0].explanation,
+    "The default configuration from Storybook.",
+  );
+  assert.deepEqual(divider.guidance, [
+    "This component has one supported visual configuration in the current library release.",
+    "Keep the component as a linked instance so future library updates continue to apply.",
+    "Use the linked Storybook story as the implementation and behavior reference.",
+  ]);
 });
 
 test("documentation group ids are unique and reject conflicting names", () => {
