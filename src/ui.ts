@@ -5,6 +5,8 @@ import {
   type ManifestSummary,
 } from "./manifest";
 
+declare const __PLUGIN_BUILD__: string;
+
 interface ReportMessage {
   type: "report";
   ok: boolean;
@@ -58,12 +60,15 @@ const saveFeedButton = requireElement<HTMLButtonElement>("save-feed");
 const clearFeedButton = requireElement<HTMLButtonElement>("clear-feed");
 const checkFeedButton = requireElement<HTMLButtonElement>("check-feed");
 const releasePanel = requireElement<HTMLElement>("release-panel");
+const buildLabel = requireElement<HTMLElement>("build-label");
 
 let parsedManifest: PerfectLibrariesManifest | undefined;
 let inspectedSource = "";
 let busy = false;
 let discoveredRelease: ReleaseStateMessage["release"];
 let loadedReleaseSourcesUrl = "";
+
+buildLabel.textContent = __PLUGIN_BUILD__;
 
 saveFeedButton.addEventListener("click", () => {
   parent.postMessage(

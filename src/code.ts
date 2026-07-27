@@ -35,6 +35,7 @@ import {
 } from "./source-text";
 import { shouldWarnMissingAutoLayout } from "./source-audit";
 import {
+  localDiagnosticUrlForReleaseSource,
   missingSourceContextError,
   selectReleaseSourcesUrl,
 } from "./source-resolution";
@@ -46,6 +47,8 @@ import {
 } from "./documentation-plan";
 
 declare const __html__: string;
+declare const __PLUGIN_BUILD__: string;
+declare const __PLUGIN_DEVELOPMENT__: boolean;
 
 const PLUGIN_NAMESPACE = "perfectLibraries";
 const RELEASE_FEED_STORAGE_KEY = "releaseFeedUrl";
@@ -87,6 +90,8 @@ interface Report {
     release: string;
   };
 }
+
+type DiagnosticOperation = "inspect" | "apply";
 
 interface SourceLookup {
   nodes: Map<string, SceneNode>;
@@ -198,11 +203,15 @@ figma.ui.onmessage = async (message: UiMessage) => {
   if (message.type === "inspect") {
     figma.ui.postMessage({ type: "busy", busy: true });
     try {
-      figma.ui.postMessage(
-        await manifestOperationQueue.run(() =>
-          inspect(message.manifest, message.sourcesUrl),
-        ),
+      const report = await manifestOperationQueue.run(() =>
+        inspect(message.manifest, message.sourcesUrl),
       );
+      figma.ui.postMessage(report);
+      void postLocalDiagnostic("inspect", report, message.sourcesUrl);
+    } catch (error) {
+      const report = operationFailureReport("Inspect failed", error);
+      figma.ui.postMessage(report);
+      void postLocalDiagnostic("inspect", report, message.sourcesUrl);
     } finally {
       figma.ui.postMessage({ type: "busy", busy: false });
     }
@@ -216,9 +225,14 @@ figma.ui.onmessage = async (message: UiMessage) => {
         apply(message.manifest, message.sourcesUrl),
       );
       figma.ui.postMessage(report);
+      void postLocalDiagnostic("apply", report, message.sourcesUrl);
       if (report.ok && cachedRelease) {
         postResolvedRelease(cachedRelease);
       }
+    } catch (error) {
+      const report = operationFailureReport("Apply failed", error);
+      figma.ui.postMessage(report);
+      void postLocalDiagnostic("apply", report, message.sourcesUrl);
     } finally {
       figma.ui.postMessage({ type: "busy", busy: false });
     }
@@ -344,6 +358,74 @@ function recordAppliedRelease(manifest: PerfectLibrariesManifest): void {
     APPLIED_RELEASES_KEY,
     JSON.stringify(releases),
   );
+}
+
+function operationFailureReport(
+  title: string,
+  error: unknown,
+): Report & { type: "report" } {
+  return {
+    type: "report",
+    ok: false,
+    title,
+    errors: [
+      error instanceof Error ? error.message : "An unknown Figma error occurred.",
+    ],
+    warnings: [],
+    details: ["This failure was sent to the configured local diagnostics service."],
+  };
+}
+
+function localDiagnosticUrl(): string | undefined {
+  return localDiagnosticUrlForReleaseSource(configuredFeedUrl);
+}
+
+async function postLocalDiagnostic(
+  operation: DiagnosticOperation,
+  report: Report,
+  requestedSourcesUrl?: string,
+): Promise<void> {
+  if (!__PLUGIN_DEVELOPMENT__) return;
+  const url = localDiagnosticUrl();
+  if (!url) return;
+
+  const sourcePage = cachedRelease
+    ? findManagedPage(cachedRelease.libraryId, "sources")
+    : undefined;
+  const payload = {
+    schemaVersion: 1,
+    pluginBuild: __PLUGIN_BUILD__,
+    operation,
+    configuredFeedUrl,
+    requestedSourcesUrl,
+    cachedRelease: cachedRelease
+      ? {
+          libraryId: cachedRelease.libraryId,
+          release: cachedRelease.release,
+          sourcesUrl: cachedRelease.sourcesUrl,
+        }
+      : undefined,
+    pageContext: {
+      currentPageName: figma.currentPage.name,
+      sourcePage: sourcePage
+        ? {
+            name: sourcePage.name,
+            children: sourcePage.children.length,
+          }
+        : undefined,
+    },
+    report,
+  };
+
+  try {
+    await fetch(url, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(payload),
+    });
+  } catch {
+    // Local diagnostics must never interfere with the Figma operation.
+  }
 }
 
 async function fetchJson(url: string): Promise<unknown> {

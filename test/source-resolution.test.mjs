@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import test from "node:test";
 
 import {
+  localDiagnosticUrlForReleaseSource,
   missingSourceContextError,
   selectReleaseSourcesUrl,
 } from "../dist/source-resolution.mjs";
@@ -23,6 +24,39 @@ test("action-bound source URL survives independently of cached release state", (
         "http://localhost:3000/perfect-libraries-sources.json",
     }),
     "http://localhost:3000/perfect-libraries-sources.json",
+  );
+});
+
+test("diagnostics stay on the configured local release origin", () => {
+  assert.equal(
+    localDiagnosticUrlForReleaseSource(
+      "http://localhost:3000/release-feed.json",
+    ),
+    "http://localhost:3000/plugin-report",
+  );
+  assert.equal(
+    localDiagnosticUrlForReleaseSource(
+      "http://localhost:8787/v1/libraries/example",
+    ),
+    "http://localhost:8787/plugin-report",
+  );
+  assert.equal(
+    localDiagnosticUrlForReleaseSource(
+      "http://127.0.0.1:8787/v1/libraries/example",
+    ),
+    undefined,
+  );
+  assert.equal(
+    localDiagnosticUrlForReleaseSource(
+      "http://localhost:9999/v1/libraries/example",
+    ),
+    undefined,
+  );
+  assert.equal(
+    localDiagnosticUrlForReleaseSource(
+      "https://ui-libraries.blume-page.com/v1/libraries/example",
+    ),
+    undefined,
   );
 });
 

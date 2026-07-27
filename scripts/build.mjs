@@ -1,10 +1,23 @@
+import { execFileSync } from "node:child_process";
 import { mkdir, readFile, writeFile } from "node:fs/promises";
+import { fileURLToPath } from "node:url";
 import process from "node:process";
 import { context, build } from "esbuild";
 
 const watch = process.argv.includes("--watch");
+const development = process.argv.includes("--dev");
 const root = new URL("../", import.meta.url);
 const dist = new URL("dist/", root);
+const pluginBuild =
+  process.env.PERFECT_LIBRARIES_BUILD?.trim() ||
+  execFileSync("git", ["rev-parse", "--short=12", "HEAD"], {
+    cwd: fileURLToPath(root),
+    encoding: "utf8",
+  }).trim();
+const pluginDefine = {
+  __PLUGIN_BUILD__: JSON.stringify(pluginBuild),
+  __PLUGIN_DEVELOPMENT__: JSON.stringify(development),
+};
 
 await mkdir(dist, { recursive: true });
 
@@ -17,6 +30,7 @@ const common = {
 
 const pluginOptions = {
   ...common,
+  define: pluginDefine,
   entryPoints: [new URL("src/code.ts", root).pathname],
   outfile: new URL("code.js", dist).pathname,
   format: "iife",
@@ -106,6 +120,7 @@ const documentationPlanOptions = {
 async function buildUi() {
   const result = await build({
     ...common,
+    define: pluginDefine,
     entryPoints: [new URL("src/ui.ts", root).pathname],
     format: "iife",
     platform: "browser",
@@ -124,7 +139,11 @@ async function buildManifest() {
     await readFile(new URL("manifest.template.json", root), "utf8"),
   );
   const pluginId = process.env.FIGMA_PLUGIN_ID?.trim();
-  const manifest = pluginId ? { ...template, id: pluginId } : template;
+  const manifest = {
+    ...template,
+    ...(pluginId ? { id: pluginId } : {}),
+    ...(development ? { name: `${template.name} (Development)` } : {}),
+  };
   await writeFile(
     new URL("manifest.json", dist),
     `${JSON.stringify(manifest, null, 2)}\n`,

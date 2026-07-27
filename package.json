@@ -19,7 +19,8 @@
   "type": "module",
   "scripts": {
     "build": "node scripts/build.mjs",
-    "dev": "node scripts/build.mjs --watch",
+    "build:dev": "node scripts/build.mjs --dev",
+    "dev": "node scripts/build.mjs --watch --dev",
     "service:build": "pnpm --filter @perfect-libraries/release-service build",
     "service:dev": "pnpm --filter @perfect-libraries/release-service dev",
     "service:test": "pnpm --filter @perfect-libraries/release-service test",
