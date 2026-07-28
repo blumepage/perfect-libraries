@@ -42,6 +42,7 @@ import {
 import { createSemanticSyncPlan } from "./semantic-sync-plan";
 import {
   createDocumentationPlan,
+  createRepresentativeCombinationGroups,
   type DocumentationComponent,
   type DocumentationGroup,
 } from "./documentation-plan";
@@ -2215,6 +2216,9 @@ const DOCUMENTATION_COLUMNS_WIDTH =
 const DOCUMENTATION_COLUMN_UNIT = DOCUMENTATION_COLUMNS_WIDTH / 5;
 const DOCUMENTATION_PREVIEW_WIDTH = DOCUMENTATION_COLUMN_UNIT * 3;
 const DOCUMENTATION_DETAILS_WIDTH = DOCUMENTATION_COLUMN_UNIT * 2;
+const DOCUMENTATION_NARROW_SOURCE_MAX_WIDTH = 240;
+const DOCUMENTATION_NARROW_SOURCE_MAX_HEIGHT = 180;
+const DOCUMENTATION_COMPACT_GALLERY_MAX_COLUMNS = 6;
 
 function findManagedPage(
   libraryId: string,
@@ -2675,6 +2679,7 @@ function createDocumentationTypeBadge(
   label: string,
   fonts: DocumentationFonts,
   variables: Map<string, Variable>,
+  compact = false,
 ): FrameNode {
   const colors = documentationBadgeColors(label);
   const badge = figma.createFrame();
@@ -2684,17 +2689,17 @@ function createDocumentationTypeBadge(
   badge.counterAxisSizingMode = "AUTO";
   badge.primaryAxisAlignItems = "CENTER";
   badge.counterAxisAlignItems = "CENTER";
-  badge.paddingTop = 3;
-  badge.paddingRight = 6;
-  badge.paddingBottom = 3;
-  badge.paddingLeft = 6;
+  badge.paddingTop = compact ? 1 : 3;
+  badge.paddingRight = compact ? 4 : 6;
+  badge.paddingBottom = compact ? 1 : 3;
+  badge.paddingLeft = compact ? 4 : 6;
   badge.cornerRadius = 999;
   badge.fills = [documentationPaint(colors.background)];
   const text = createDocumentationText(
     label.toUpperCase().replace("_", " "),
     fonts.bodyMedium,
-    8,
-    10,
+    compact ? 7 : 8,
+    compact ? 8 : 10,
     180,
     colors.text,
     "__documentation-type-badge",
@@ -2704,6 +2709,39 @@ function createDocumentationTypeBadge(
   badge.appendChild(text);
   text.layoutSizingHorizontal = "HUG";
   return badge;
+}
+
+function createDocumentationTableCell(
+  name: string,
+  width: number,
+  height: number,
+  horizontalPadding: number,
+  variables: Map<string, Variable>,
+  divider = false,
+): FrameNode {
+  const cell = createDocumentationFrame(name, width, 0, 0);
+  cell.layoutMode = "HORIZONTAL";
+  cell.primaryAxisSizingMode = "FIXED";
+  cell.counterAxisSizingMode = "FIXED";
+  cell.primaryAxisAlignItems = "MIN";
+  cell.counterAxisAlignItems = "CENTER";
+  cell.paddingLeft = horizontalPadding;
+  cell.paddingRight = horizontalPadding;
+  cell.resizeWithoutConstraints(width, height);
+  cell.fills = [];
+  if (divider) {
+    setDocumentationStroke(
+      cell,
+      DOCUMENTATION_COLORS.borderCard,
+      "border-card",
+      variables,
+    );
+    cell.strokeTopWeight = 0;
+    cell.strokeRightWeight = 1;
+    cell.strokeBottomWeight = 0;
+    cell.strokeLeftWeight = 0;
+  }
+  return cell;
 }
 
 function addDocumentationDataPanel(
@@ -2721,6 +2759,7 @@ function addDocumentationDataPanel(
   if (rows.length === 0) return;
   const columnCount = table ? 1 : Math.max(1, Math.floor(columns));
   const rowGap = table ? 0 : 4;
+  const tableRowHeight = 18;
   const rowsWidth = width - 24;
   const rowWidth =
     (rowsWidth - rowGap * Math.max(0, columnCount - 1)) / columnCount;
@@ -2765,12 +2804,30 @@ function addDocumentationDataPanel(
   rowsGrid.counterAxisAlignItems = "MIN";
   rowsGrid.itemSpacing = rowGap;
   rowsGrid.counterAxisSpacing = rowGap;
-  rowsGrid.resizeWithoutConstraints(rowsWidth, 20);
-  rowsGrid.fills = [];
+  rowsGrid.resizeWithoutConstraints(rowsWidth, table ? tableRowHeight : 20);
+  if (table) {
+    setDocumentationFill(
+      rowsGrid,
+      DOCUMENTATION_COLORS.card,
+      "bg-card",
+      variables,
+    );
+    setDocumentationStroke(
+      rowsGrid,
+      DOCUMENTATION_COLORS.borderCard,
+      "border-card",
+      variables,
+    );
+    rowsGrid.strokeWeight = 1;
+    setDocumentationRadius(rowsGrid, 8, "radius-control", variables);
+    rowsGrid.clipsContent = true;
+  } else {
+    rowsGrid.fills = [];
+  }
   panel.appendChild(rowsGrid);
   rowsGrid.layoutSizingHorizontal = "FILL";
 
-  for (const rowDefinition of rows) {
+  for (const [rowIndex, rowDefinition] of rows.entries()) {
     const row = figma.createFrame();
     row.name = rowDefinition.name;
     row.layoutMode = "HORIZONTAL";
@@ -2778,14 +2835,25 @@ function addDocumentationDataPanel(
     row.counterAxisSizingMode = table ? "FIXED" : "AUTO";
     row.primaryAxisAlignItems = "MIN";
     row.counterAxisAlignItems = "CENTER";
-    row.itemSpacing = 6;
+    row.itemSpacing = table ? 0 : 6;
     row.paddingTop = table ? 0 : 5;
-    row.paddingRight = 8;
+    row.paddingRight = table ? 0 : 8;
     row.paddingBottom = table ? 0 : 5;
-    row.paddingLeft = 8;
-    row.resizeWithoutConstraints(rowWidth, 20);
+    row.paddingLeft = table ? 0 : 8;
+    row.resizeWithoutConstraints(rowWidth, table ? tableRowHeight : 20);
     setDocumentationFill(row, DOCUMENTATION_COLORS.card, "bg-card", variables);
-    if (!table) {
+    if (table) {
+      setDocumentationStroke(
+        row,
+        DOCUMENTATION_COLORS.borderCard,
+        "border-card",
+        variables,
+      );
+      row.strokeTopWeight = 0;
+      row.strokeRightWeight = 0;
+      row.strokeBottomWeight = rowIndex === rows.length - 1 ? 0 : 1;
+      row.strokeLeftWeight = 0;
+    } else {
       setDocumentationRadius(row, 4, "radius-control", variables);
     }
     rowsGrid.appendChild(row);
@@ -2793,6 +2861,84 @@ function addDocumentationDataPanel(
       table || columnCount === 1 ? "FILL" : "FIXED";
 
     const nameWidth = table ? 132 : columnCount === 1 ? 104 : 72;
+    if (table) {
+      const typeCellWidth = 82;
+      const summary = [rowDefinition.details, rowDefinition.description]
+        .filter(Boolean)
+        .join(" · ")
+        .replace(/\s+/g, " ");
+      const nameCell = createDocumentationTableCell(
+        `${rowDefinition.name} name`,
+        nameWidth,
+        tableRowHeight,
+        8,
+        variables,
+        true,
+      );
+      row.appendChild(nameCell);
+      const name = createDocumentationText(
+        rowDefinition.name,
+        fonts.bodyMedium,
+        8,
+        10,
+        nameWidth - 16,
+        DOCUMENTATION_COLORS.textStrong,
+        "text-strong",
+        variables,
+      );
+      name.textTruncation = "ENDING";
+      name.maxLines = 1;
+      nameCell.appendChild(name);
+
+      const typeCell = createDocumentationTableCell(
+        `${rowDefinition.name} type`,
+        typeCellWidth,
+        tableRowHeight,
+        0,
+        variables,
+        true,
+      );
+      typeCell.primaryAxisAlignItems = "CENTER";
+      row.appendChild(typeCell);
+      typeCell.appendChild(
+        createDocumentationTypeBadge(
+          rowDefinition.type,
+          fonts,
+          variables,
+          true,
+        ),
+      );
+
+      const detailsCellWidth = Math.max(
+        40,
+        rowWidth - nameWidth - typeCellWidth,
+      );
+      const detailsCell = createDocumentationTableCell(
+        `${rowDefinition.name} details`,
+        detailsCellWidth,
+        tableRowHeight,
+        8,
+        variables,
+      );
+      row.appendChild(detailsCell);
+      detailsCell.layoutSizingHorizontal = "FILL";
+      const details = createDocumentationText(
+        summary || "—",
+        fonts.body,
+        8,
+        10,
+        Math.max(40, detailsCellWidth - 16),
+        DOCUMENTATION_COLORS.textBody,
+        "text-body",
+        variables,
+      );
+      details.textTruncation = "ENDING";
+      details.maxLines = 1;
+      detailsCell.appendChild(details);
+      details.layoutSizingHorizontal = "FILL";
+      continue;
+    }
+
     const name = createDocumentationText(
       rowDefinition.name,
       fonts.bodyMedium,
@@ -2835,13 +2981,9 @@ function addDocumentationDataPanel(
   }
 }
 
-function buildCombinationGallery(
-  manifest: PerfectLibrariesManifest,
-  component: DocumentationComponent,
-  runtime: ComponentRuntime,
-  fonts: DocumentationFonts,
-  variables: Map<string, Variable>,
+function createDocumentationGalleryShell(
   width: number,
+  variables: Map<string, Variable>,
 ): FrameNode {
   const gallery = createDocumentationFrame(
     "Supported combinations",
@@ -2863,7 +3005,211 @@ function buildCombinationGallery(
   );
   gallery.strokeWeight = 1;
   setDocumentationRadius(gallery, 14, "radius-card", variables);
+  return gallery;
+}
 
+function useCompactCombinationGallery(
+  component: DocumentationComponent,
+  runtime: ComponentRuntime,
+): boolean {
+  if (component.combinations.length < 2) return false;
+  return component.combinations.every((combination) => {
+    const variant = runtime.variants.get(combination.variantId);
+    return (
+      variant !== undefined &&
+      variant.width <= DOCUMENTATION_NARROW_SOURCE_MAX_WIDTH &&
+      variant.height <= DOCUMENTATION_NARROW_SOURCE_MAX_HEIGHT
+    );
+  });
+}
+
+function buildCompactCombinationGallery(
+  manifest: PerfectLibrariesManifest,
+  component: DocumentationComponent,
+  runtime: ComponentRuntime,
+  fonts: DocumentationFonts,
+  variables: Map<string, Variable>,
+  width: number,
+): FrameNode {
+  const gallery = createDocumentationGalleryShell(width, variables);
+  const galleryContentWidth = width - 48;
+  const groupGap = 8;
+  for (const group of createRepresentativeCombinationGroups(component)) {
+    const combinations = group.combinations.filter((combination) =>
+      runtime.variants.has(combination.variantId),
+    );
+    if (combinations.length === 0) continue;
+    const section = createDocumentationFrame(
+      `${group.axis} examples`,
+      galleryContentWidth,
+      8,
+      0,
+    );
+    section.fills = [];
+    gallery.appendChild(section);
+    section.layoutSizingHorizontal = "FILL";
+    appendDocumentationText(
+      section,
+      createDocumentationText(
+        `${group.axis} variations`,
+        fonts.heading,
+        13,
+        17,
+        galleryContentWidth,
+        DOCUMENTATION_COLORS.textStrong,
+        "text-strong",
+        variables,
+      ),
+    );
+
+    const maximumSourceWidth = Math.max(
+      ...combinations.map(
+        (combination) => runtime.variants.get(combination.variantId)?.width ?? 0,
+      ),
+    );
+    const minimumTileWidth = Math.max(136, maximumSourceWidth + 32);
+    const maximumColumns = Math.max(
+      1,
+      Math.min(
+        DOCUMENTATION_COMPACT_GALLERY_MAX_COLUMNS,
+        Math.floor(
+          (galleryContentWidth + groupGap) / (minimumTileWidth + groupGap),
+        ),
+      ),
+    );
+    const desiredColumns =
+      combinations.length <= maximumColumns
+        ? combinations.length
+        : Math.ceil(combinations.length / 2);
+    const columnCount = Math.max(
+      1,
+      Math.min(maximumColumns, desiredColumns),
+    );
+    const tileWidth =
+      (galleryContentWidth - groupGap * Math.max(0, columnCount - 1)) /
+      columnCount;
+    const grid = figma.createFrame();
+    grid.name = `${group.axis} preview row`;
+    grid.layoutMode = "HORIZONTAL";
+    grid.layoutWrap = "WRAP";
+    grid.primaryAxisSizingMode = "FIXED";
+    grid.counterAxisSizingMode = "AUTO";
+    grid.primaryAxisAlignItems = "MIN";
+    grid.counterAxisAlignItems = "MIN";
+    grid.itemSpacing = groupGap;
+    grid.counterAxisSpacing = groupGap;
+    grid.resizeWithoutConstraints(galleryContentWidth, 80);
+    grid.fills = [];
+    section.appendChild(grid);
+    grid.layoutSizingHorizontal = "FILL";
+
+    for (const combination of combinations) {
+      const variant = runtime.variants.get(combination.variantId);
+      if (!variant) continue;
+      const sourceWidth = variant.width;
+      const sourceHeight = variant.height;
+      const instance = variant.createInstance();
+      clearManagedNodeIdentity({
+        node: instance,
+        namespace: PLUGIN_NAMESPACE,
+      });
+      enforceExactNodeSize({
+        node: instance,
+        width: sourceWidth,
+        height: sourceHeight,
+      });
+      const tile = createDocumentationFrame(
+        combination.label,
+        tileWidth,
+        8,
+        10,
+      );
+      tile.primaryAxisSizingMode = "AUTO";
+      tile.counterAxisSizingMode = "FIXED";
+      setDocumentationFill(
+        tile,
+        DOCUMENTATION_COLORS.card,
+        "bg-card",
+        variables,
+      );
+      setDocumentationRadius(tile, 8, "radius-control", variables);
+      appendDocumentationText(
+        tile,
+        createDocumentationText(
+          combination.label,
+          fonts.heading,
+          11,
+          14,
+          tileWidth - 20,
+          DOCUMENTATION_COLORS.textStrong,
+          "text-strong",
+          variables,
+        ),
+      );
+      const stage = figma.createFrame();
+      stage.name = "Live component preview";
+      stage.layoutMode = "HORIZONTAL";
+      stage.primaryAxisSizingMode = "FIXED";
+      stage.counterAxisSizingMode = "FIXED";
+      stage.primaryAxisAlignItems = "CENTER";
+      stage.counterAxisAlignItems = "CENTER";
+      stage.resizeWithoutConstraints(
+        tileWidth - 20,
+        Math.max(56, sourceHeight + 24),
+      );
+      setDocumentationFill(
+        stage,
+        DOCUMENTATION_COLORS.subtle,
+        "bg-subtle",
+        variables,
+      );
+      setDocumentationStroke(
+        stage,
+        DOCUMENTATION_COLORS.borderSubtle,
+        "border-subtle",
+        variables,
+      );
+      stage.strokeWeight = 1;
+      setDocumentationRadius(stage, 8, "radius-control", variables);
+      stage.appendChild(instance);
+      enforceExactNodeSize({
+        node: instance,
+        width: sourceWidth,
+        height: sourceHeight,
+      });
+      tile.appendChild(stage);
+      grid.appendChild(tile);
+      tile.layoutSizingHorizontal = "FIXED";
+      tagManaged(
+        tile as ManagedSceneNode,
+        manifest,
+        "documentation-combination",
+        `${group.axis}:${combination.variantId}`,
+      );
+    }
+  }
+  return gallery;
+}
+
+function buildCombinationGallery(
+  manifest: PerfectLibrariesManifest,
+  component: DocumentationComponent,
+  runtime: ComponentRuntime,
+  fonts: DocumentationFonts,
+  variables: Map<string, Variable>,
+  width: number,
+): FrameNode {
+  if (useCompactCombinationGallery(component, runtime)) {
+    return buildCompactCombinationGallery(
+      manifest,
+      component,
+      runtime,
+      fonts,
+      variables,
+      width,
+    );
+  }
+  const gallery = createDocumentationGalleryShell(width, variables);
   for (const combination of component.combinations) {
     const variant = runtime.variants.get(combination.variantId);
     if (!variant) continue;

@@ -24,6 +24,17 @@ const guidanceEnd = source.indexOf(
   guidanceStart,
 );
 const guidanceRenderer = source.slice(guidanceStart, guidanceEnd);
+const compactGalleryStart = source.indexOf(
+  "function useCompactCombinationGallery(",
+);
+const compactGalleryEnd = source.indexOf(
+  "\nfunction buildComponentDocumentationCard(",
+  compactGalleryStart,
+);
+const compactGalleryRenderer = source.slice(
+  compactGalleryStart,
+  compactGalleryEnd,
+);
 
 test("component card columns use the requested three-to-two ratio", () => {
   assert.match(
@@ -62,7 +73,7 @@ test("reference lists render as compact single-line table rows", () => {
     /rowWidth =\s*\(rowsWidth - rowGap \* Math\.max\(0, columnCount - 1\)\) \/ columnCount;/,
   );
   assert.match(dataPanelRenderer, /row\.layoutMode = "HORIZONTAL";/);
-  assert.match(dataPanelRenderer, /row\.itemSpacing = 6;/);
+  assert.match(dataPanelRenderer, /row\.itemSpacing = table \? 0 : 6;/);
   assert.match(
     dataPanelRenderer,
     /const nameWidth = table \? 132 : columnCount === 1 \? 104 : 72;/,
@@ -108,7 +119,7 @@ test("component cards keep the scan hierarchy in the left column", () => {
   );
 });
 
-test("Storybook controls and actions use a single gapless 20px table", () => {
+test("Storybook controls and actions use a bordered compact table", () => {
   const controls = renderer.indexOf('"Storybook controls & actions"');
   const composition = renderer.indexOf('"Composition"', controls);
   const controlsCall = renderer.slice(controls, composition);
@@ -131,7 +142,30 @@ test("Storybook controls and actions use a single gapless 20px table", () => {
     dataPanelRenderer,
     /row\.counterAxisSizingMode = table \? "FIXED" : "AUTO";/,
   );
-  assert.match(dataPanelRenderer, /row\.resizeWithoutConstraints\(rowWidth, 20\);/);
+  assert.match(dataPanelRenderer, /const tableRowHeight = 18;/);
+  assert.match(
+    dataPanelRenderer,
+    /row\.resizeWithoutConstraints\(rowWidth, table \? tableRowHeight : 20\);/,
+  );
+  assert.match(
+    dataPanelRenderer,
+    /DOCUMENTATION_COLORS\.borderCard,\s*"border-card"/,
+  );
+  assert.match(
+    dataPanelRenderer,
+    /setDocumentationRadius\(rowsGrid, 8, "radius-control", variables\);/,
+  );
+  assert.match(dataPanelRenderer, /rowsGrid\.clipsContent = true;/);
+  assert.match(dataPanelRenderer, /row\.strokeBottomWeight = rowIndex === rows\.length - 1 \? 0 : 1;/);
+  assert.match(source, /cell\.strokeRightWeight = 1;/);
+  assert.match(
+    dataPanelRenderer,
+    /createDocumentationTypeBadge\(\s*rowDefinition\.type,\s*fonts,\s*variables,\s*true,/,
+  );
+  assert.match(
+    source,
+    /badge\.paddingTop = compact \? 1 : 3;[\s\S]*?compact \? 7 : 8,[\s\S]*?compact \? 8 : 10,/,
+  );
 });
 
 test("component titles and subtitles dominate compact reference text", () => {
@@ -143,5 +177,33 @@ test("component titles and subtitles dominate compact reference text", () => {
   assert.match(
     renderer,
     /"Component reference",\s*fonts\.heading,\s*14,\s*18,/,
+  );
+});
+
+test("intrinsically narrow components use grouped one-axis preview rows", () => {
+  assert.match(
+    compactGalleryRenderer,
+    /variant\.width <= DOCUMENTATION_NARROW_SOURCE_MAX_WIDTH/,
+  );
+  assert.match(
+    compactGalleryRenderer,
+    /variant\.height <= DOCUMENTATION_NARROW_SOURCE_MAX_HEIGHT/,
+  );
+  assert.match(
+    compactGalleryRenderer,
+    /createRepresentativeCombinationGroups\(component\)/,
+  );
+  assert.match(compactGalleryRenderer, /grid\.layoutWrap = "WRAP";/);
+  assert.match(
+    compactGalleryRenderer,
+    /DOCUMENTATION_COMPACT_GALLERY_MAX_COLUMNS/,
+  );
+  assert.match(
+    compactGalleryRenderer,
+    /Math\.ceil\(combinations\.length \/ 2\)/,
+  );
+  assert.match(
+    compactGalleryRenderer,
+    /return buildCompactCombinationGallery\(/,
   );
 });
