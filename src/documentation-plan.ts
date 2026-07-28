@@ -67,9 +67,28 @@ function fallbackGroupId(value: string): string {
   return `${slug(value) || "components"}-${stableHash(value)}`;
 }
 
+const DESIGN_SYSTEM_GROUP_ORDER = [
+  "Foundations",
+  "Atoms",
+  "Molecules",
+  "Organisms",
+  "Navigation",
+  "Layouts",
+  "Views",
+] as const;
+
 function groupOrder(left: string, right: string): number {
-  if (left === "Foundations") return -1;
-  if (right === "Foundations") return 1;
+  const leftIndex = DESIGN_SYSTEM_GROUP_ORDER.indexOf(
+    left as (typeof DESIGN_SYSTEM_GROUP_ORDER)[number],
+  );
+  const rightIndex = DESIGN_SYSTEM_GROUP_ORDER.indexOf(
+    right as (typeof DESIGN_SYSTEM_GROUP_ORDER)[number],
+  );
+  if (leftIndex !== -1 || rightIndex !== -1) {
+    if (leftIndex === -1) return 1;
+    if (rightIndex === -1) return -1;
+    return leftIndex - rightIndex;
+  }
   return left.localeCompare(right);
 }
 

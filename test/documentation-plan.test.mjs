@@ -68,6 +68,42 @@ test("documentation plan keeps exact combinations and reverse relationships", ()
   assert.deepEqual(plan.groups[0].components[0].usedBy, ["Button"]);
 });
 
+test("documentation pages follow the design-system hierarchy", () => {
+  const names = [
+    "Views",
+    "Molecules",
+    "Layouts",
+    "Foundations",
+    "Organisms",
+    "Atoms",
+    "Navigation",
+  ];
+  const plan = createDocumentationPlan(
+    names.map((group) => ({
+      id: group.toLowerCase(),
+      name: group,
+      documentation: { groupId: group.toLowerCase(), group },
+      variants: [
+        {
+          id: `${group.toLowerCase()}-default`,
+          sourceNode: `${group} / Default`,
+          properties: { State: "Default" },
+        },
+      ],
+    })),
+  );
+
+  assert.deepEqual(plan.groups.map((group) => group.name), [
+    "Foundations",
+    "Atoms",
+    "Molecules",
+    "Organisms",
+    "Navigation",
+    "Layouts",
+    "Views",
+  ]);
+});
+
 test("documentation copy remains complete for a component without variant axes", () => {
   const plan = createDocumentationPlan([
     {
