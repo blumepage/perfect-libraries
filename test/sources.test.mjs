@@ -67,6 +67,21 @@ test("validates absolute child positioning and rejects unsupported constraints",
   );
 });
 
+test("validates Auto Layout fill sizing exported from CSS auto margins", () => {
+  const input = sources();
+  input.variants[0].scene.children[0].layoutSizingHorizontal = "FILL";
+  assert.equal(validateSources(input).ok, true);
+
+  input.variants[0].scene.children[0].layoutSizingHorizontal = "STRETCH";
+  const invalid = validateSources(input);
+  assert.equal(invalid.ok, false);
+  assert.ok(
+    invalid.errors.some((error) =>
+      error.includes("layoutSizingHorizontal is invalid"),
+    ),
+  );
+});
+
 test("rejects mismatched source names and invalid dimensions", () => {
   const input = sources();
   input.variants[0].scene.name = "Wrong name";

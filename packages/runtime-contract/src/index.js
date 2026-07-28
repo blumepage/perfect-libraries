@@ -58,6 +58,18 @@ export function applySourceChildPlacement({
       vertical: source.constraints.vertical,
     };
   }
+  if (
+    source.layoutSizingHorizontal === "FILL" &&
+    "layoutSizingHorizontal" in child
+  ) {
+    child.layoutSizingHorizontal = "FILL";
+  }
+  if (
+    source.layoutSizingVertical === "FILL" &&
+    "layoutSizingVertical" in child
+  ) {
+    child.layoutSizingVertical = "FILL";
+  }
   if (parentLayoutMode === "NONE" || absolute) {
     child.x = source.x ?? 0;
     child.y = source.y ?? 0;

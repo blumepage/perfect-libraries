@@ -313,6 +313,24 @@ test("absolute source children stay out of Auto Layout flow and retain top-right
   assert.equal(child.y, -3);
 });
 
+test("source fill sizing preserves CSS auto-margin behavior in Figma Auto Layout", () => {
+  const child = {
+    x: 0,
+    y: 0,
+    layoutSizingHorizontal: "FIXED",
+    layoutSizingVertical: "FIXED",
+  };
+
+  applySourceChildPlacement({
+    parentLayoutMode: "HORIZONTAL",
+    source: { layoutSizingHorizontal: "FILL" },
+    child,
+  });
+
+  assert.equal(child.layoutSizingHorizontal, "FILL");
+  assert.equal(child.layoutSizingVertical, "FIXED");
+});
+
 test("manual variant grids preserve exact source sizes instead of Auto Layout reflow", () => {
   const componentSet = {
     layoutMode: "VERTICAL",

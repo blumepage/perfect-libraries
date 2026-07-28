@@ -648,10 +648,71 @@
     return !hasSurface && (element.textContent?.trim().length ?? 0) > 0;
   }
 
+  function hasAuthoredAutoMargin(element, property) {
+    if (element.style?.[property] === "auto") return true;
+    const cssProperty = property.replace(/[A-Z]/g, (letter) => `-${letter.toLowerCase()}`);
+    function ruleListHasAutoMargin(rules) {
+      for (const rule of rules) {
+        if (rule.selectorText && rule.style) {
+          try {
+            if (
+              element.matches(rule.selectorText) &&
+              rule.style.getPropertyValue(cssProperty).trim() === "auto"
+            ) {
+              return true;
+            }
+          } catch {
+            // Ignore selectors the browser cannot match in this context.
+          }
+        }
+        if (rule.cssRules && ruleListHasAutoMargin(rule.cssRules)) return true;
+      }
+      return false;
+    }
+    for (const sheet of document.styleSheets) {
+      try {
+        if (sheet.cssRules && ruleListHasAutoMargin(sheet.cssRules)) return true;
+      } catch {
+        // Cross-origin stylesheets are opaque; layout still exports without them.
+      }
+    }
+    return false;
+  }
+
+  function autoLayoutChildSizing(element, style) {
+    if (
+      style.position === "absolute" ||
+      style.position === "fixed" ||
+      !element.parentElement
+    ) {
+      return {};
+    }
+    const parentStyle = getComputedStyle(element.parentElement);
+    if (
+      parentStyle.display !== "flex" &&
+      parentStyle.display !== "inline-flex"
+    ) {
+      return {};
+    }
+    const horizontal = parentStyle.flexDirection.startsWith("row");
+    const fillsAxis =
+      Number(style.flexGrow) > 0 ||
+      (horizontal
+        ? hasAuthoredAutoMargin(element, "marginLeft") ||
+          hasAuthoredAutoMargin(element, "marginRight")
+        : hasAuthoredAutoMargin(element, "marginTop") ||
+          hasAuthoredAutoMargin(element, "marginBottom"));
+    if (!fillsAxis) return {};
+    return horizontal
+      ? { layoutSizingHorizontal: "FILL" }
+      : { layoutSizingVertical: "FILL" };
+  }
+
   async function serialize(element, parentRect, warnings, depth = 0) {
     const style = getComputedStyle(element);
     const rect = element.getBoundingClientRect();
     if (!visible(element, style, rect)) return null;
+    const childSizing = autoLayoutChildSizing(element, style);
 
     if (element instanceof SVGSVGElement) {
       return {
@@ -662,15 +723,18 @@
         x: round(rect.left - parentRect.left),
         y: round(rect.top - parentRect.top),
         svg: bakeCurrentColor(element.outerHTML, style),
+        ...childSizing,
       };
     }
 
     if (element instanceof HTMLImageElement) {
-      return imageLayer(element, style, rect, parentRect, warnings);
+      const layer = await imageLayer(element, style, rect, parentRect, warnings);
+      return layer ? { ...layer, ...childSizing } : null;
     }
 
     if (isTextOnly(element)) {
-      return textLayer(element.firstChild, parentRect, style, 0);
+      const layer = textLayer(element.firstChild, parentRect, style, 0);
+      return layer ? { ...layer, ...childSizing } : null;
     }
 
     const display = style.display;
@@ -744,6 +808,7 @@
       layoutMode: inferred?.layoutMode ?? layoutMode,
       primaryAxisSizingMode: inline ? "AUTO" : "FIXED",
       counterAxisSizingMode: inline ? "AUTO" : "FIXED",
+      ...childSizing,
       ...(flex ? {
         primaryAxisAlignItems: alignment(style.justifyContent, true),
         counterAxisAlignItems: alignment(style.alignItems),

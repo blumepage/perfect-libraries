@@ -42,6 +42,8 @@ export interface SourceBaseNode {
   height: number;
   x?: number;
   y?: number;
+  layoutSizingHorizontal?: "FILL";
+  layoutSizingVertical?: "FILL";
   layoutPositioning?: "ABSOLUTE";
   constraints?: {
     horizontal: "MIN" | "CENTER" | "MAX" | "STRETCH" | "SCALE";
@@ -309,6 +311,14 @@ function validateSceneNode(
     value.layoutPositioning !== "ABSOLUTE"
   ) {
     errors.push(`${path}.layoutPositioning is invalid.`);
+  }
+  for (const field of [
+    "layoutSizingHorizontal",
+    "layoutSizingVertical",
+  ] as const) {
+    if (value[field] !== undefined && value[field] !== "FILL") {
+      errors.push(`${path}.${field} is invalid.`);
+    }
   }
   if (value.constraints !== undefined) {
     if (!isRecord(value.constraints)) {

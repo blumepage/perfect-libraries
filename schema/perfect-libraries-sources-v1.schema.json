@@ -134,6 +134,8 @@
         "height": { "type": "number", "exclusiveMinimum": 0 },
         "x": { "type": "number" },
         "y": { "type": "number" },
+        "layoutSizingHorizontal": { "const": "FILL" },
+        "layoutSizingVertical": { "const": "FILL" },
         "layoutPositioning": { "const": "ABSOLUTE" },
         "constraints": { "$ref": "#/$defs/constraints" },
         "opacity": { "type": "number", "minimum": 0, "maximum": 1 }
