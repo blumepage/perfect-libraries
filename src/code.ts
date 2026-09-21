@@ -812,9 +812,9 @@ async function resolveSourceLookup(
 
 function sourcePaints(paints: SourcePaint[] | undefined): Paint[] {
   return (paints ?? []).map((paint): Paint => {
-    if (paint.type === "GRADIENT_LINEAR") {
+    if (paint.type !== "SOLID") {
       return {
-        type: "GRADIENT_LINEAR",
+        type: paint.type,
         gradientTransform: paint.gradientTransform,
         gradientStops: paint.gradientStops.map((stop) => ({
           position: stop.position,
@@ -941,7 +941,12 @@ async function createSourceSceneNode(
       "sourceRole",
       "vector-artwork",
     );
-    vector.resize(Math.max(1, source.width), Math.max(1, source.height));
+    // Preserve SVG text and internal geometry at the captured size.
+    for (const text of vector.findAllWithCriteria({ types: ["TEXT"] })) {
+      for (const segment of text.getStyledTextSegments(["fontName"])) await figma.loadFontAsync(segment.fontName);
+    }
+    vector.rescale(Math.max(1, source.width) / vector.width);
+    if (Math.abs(vector.height - Math.max(1, source.height)) > 0.1) vector.resize(Math.max(1, source.width), Math.max(1, source.height));
     vector.x = source.x ?? 0;
     vector.y = source.y ?? 0;
     vector.opacity = source.opacity ?? 1;
@@ -3639,6 +3644,32 @@ function buildGroupDocumentationRoot(
       variables,
     ),
   );
+  if (group.name === "Foundations") {
+    for (const collection of manifest.tokenCollections) {
+      addDocumentationDataPanel(root, `${collection.name} variables`, collection.tokens.map(token => ({
+        name: token.name,
+        type: token.type,
+        details: collection.modes.map(mode => `${mode}: ${formatDefaultValue(token.values[mode])}`).join(" · "),
+      })), fonts, variables, DOCUMENTATION_CARD_WIDTH, { table: true });
+    }
+    for (const definition of manifest.textStyles ?? []) {
+      const specimen = createDocumentationFrame(definition.name, DOCUMENTATION_CARD_WIDTH, 12, 24);
+      setDocumentationFill(specimen, DOCUMENTATION_COLORS.inner, "bg-inner", variables);
+      appendDocumentationText(specimen, createDocumentationText(
+        `${definition.name} · ${definition.fontSize}px / ${definition.lineHeight}px`,
+        fonts.body, 12, 18, DOCUMENTATION_CARD_WIDTH - 48,
+        DOCUMENTATION_COLORS.textMuted, "text-muted", variables,
+      ));
+      const sample = createDocumentationText("The quick brown fox jumps over the lazy dog. 0123456789",
+        { family: definition.fontFamily, style: definition.fontStyle },
+        definition.fontSize, definition.lineHeight, DOCUMENTATION_CARD_WIDTH - 48,
+        DOCUMENTATION_COLORS.textStrong, "text-strong", variables);
+      if (definition.fontSizeToken) sample.setBoundVariable("fontSize", variables.get(definition.fontSizeToken)!);
+      if (definition.lineHeightToken) sample.setBoundVariable("lineHeight", variables.get(definition.lineHeightToken)!);
+      appendDocumentationText(specimen, sample);
+      root.appendChild(specimen);
+    }
+  }
   for (const component of group.components) {
     const runtime = runtimes.get(component.id);
     if (!runtime) continue;

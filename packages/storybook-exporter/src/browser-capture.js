@@ -318,11 +318,34 @@
     };
   }
 
+  function radialGradient(value) {
+    const match = /^radial-gradient\((.*)\)$/i.exec(value.trim());
+    if (!match) return null;
+    const parts = splitTopLevel(match[1]);
+    // Support the CSS default: a centered farthest-corner ellipse. Other
+    // shapes/positions remain blocking until their geometry is implemented.
+    if (/^(ellipse(?: farthest-corner)?|farthest-corner(?: ellipse)?)$/.test(parts[0])) parts.shift();
+    const stops = parts.map(part => {
+      const parsed = colorAndPosition(part);
+      const color = parsed && rgbaColor(parsed.color);
+      if (!color || (parsed.position && !/^-?\d+(?:\.\d+)?%$/.test(parsed.position))) return null;
+      return { position: stopPosition(parsed.position), color };
+    });
+    if (stops.length < 2 || stops.some(stop => !stop)) return null;
+    fillMissingStopPositions(stops);
+    // Figma maps the frame into gradient space. The farthest-corner ellipse
+    // has radii sqrt(2) times the half-width/half-height, centered at .5,.5.
+    const scale = Math.SQRT1_2;
+    return { type: "GRADIENT_RADIAL", gradientTransform: [
+      [scale, 0, (1 - scale) / 2], [0, scale, (1 - scale) / 2],
+    ], gradientStops: stops };
+  }
+
   function backgroundPaints(style, warnings, name) {
     const paints = [];
     if (style.backgroundImage && style.backgroundImage !== "none") {
       for (const layer of splitTopLevel(style.backgroundImage)) {
-        const gradient = linearGradient(layer);
+        const gradient = linearGradient(layer) || radialGradient(layer);
         if (gradient) paints.push(gradient);
         else warnings.push(`${name} has an unsupported background image: ${layer}.`);
       }
@@ -656,7 +679,11 @@
   }
 
   function inferLayout(element, style, children, rect) {
-    if (children.length < 2) return null;
+    if (children.length === 0) return null;
+    if (children.length === 1) return {
+      layoutMode: "VERTICAL", primaryAxisAlignItems: "MIN", counterAxisAlignItems: "MIN",
+      layoutWrap: "NO_WRAP", ...layoutPadding(children, rect), itemSpacing: 0, counterAxisSpacing: 0
+    };
     if (style.display === "grid" || style.display === "inline-grid") {
       return (
         inferredWrappedLayout(children, rect) ||
@@ -745,6 +772,93 @@
       : { layoutSizingVertical: "FILL" };
   }
 
+  function inlineTextFrame(element, style, rect, parentRect, warnings) {
+    if (element.tagName !== "P" || solidPaint(style.backgroundColor) || style.backgroundImage !== "none") return null;
+    const descendants = [...element.querySelectorAll('*')];
+    if (!descendants.length || !descendants.every(child => {
+      const css = getComputedStyle(child);
+      return ['SPAN', 'A', 'STRONG', 'EM', 'B', 'I'].includes(child.tagName) &&
+        css.display === 'inline' && css.backgroundColor === 'rgba(0, 0, 0, 0)' &&
+        css.backgroundImage === 'none' && css.textDecorationLine === 'none' &&
+        css.boxShadow === 'none' && ['Top', 'Right', 'Bottom', 'Left'].every(side => px(css[`border${side}Width`]) === 0);
+    })) return null;
+    const walker = document.createTreeWalker(element, NodeFilter.SHOW_TEXT);
+    const fragments = [];
+    let text;
+    while ((text = walker.nextNode())) {
+      const css = getComputedStyle(text.parentElement);
+      if (css.visibility !== 'visible') continue;
+      let opacity = 1;
+      for (let ancestor = text.parentElement; ancestor !== element; ancestor = ancestor.parentElement) {
+        opacity *= Number(getComputedStyle(ancestor).opacity);
+      }
+      if (opacity === 0) continue;
+      let start = 0;
+      let prior = null;
+      const emit = end => {
+        if (end <= start) return;
+        const range = document.createRange();
+        range.setStart(text, start); range.setEnd(text, end);
+        const box = range.getBoundingClientRect();
+        const characters = text.textContent.slice(start, end).replace(/\s+/g, ' ');
+        if (box.width > 0.1 && characters.trim()) {
+          const layer = textLayer(text, rect, css, fragments.length);
+          if (layer) fragments.push({ ...layer, opacity, characters, x: round(box.left - rect.left), y: round(box.top - rect.top), width: round(box.width), height: round(box.height) });
+        }
+      };
+      for (let index = 0; index < text.length; index++) {
+        const range = document.createRange(); range.setStart(text, index); range.setEnd(text, index + 1);
+        const box = range.getBoundingClientRect();
+        if (prior !== null && Math.abs(box.top - prior) > 1) { emit(index); start = index; }
+        prior = box.top;
+      }
+      emit(text.length);
+    }
+    if (!fragments.length) return null;
+    const rows = [];
+    for (const fragment of fragments) {
+      let row = rows.find(row => Math.abs(row.top - fragment.y) < 2);
+      if (!row) { row = { top: fragment.y, fragments: [] }; rows.push(row); }
+      row.fragments.push(fragment);
+    }
+    rows.sort((a, b) => a.top - b.top);
+    const children = rows.map((row, index) => {
+      row.fragments.sort((a, b) => a.x - b.x);
+      const bottom = Math.max(...row.fragments.map(fragment => fragment.y + fragment.height));
+      const height = (rows[index + 1]?.top ?? bottom) - row.top;
+      // Each measured run retains its own font and color. Horizontal gaps are
+      // represented by run padding so inline whitespace survives generation.
+      const runs = row.fragments.map((fragment, runIndex) => {
+        const next = row.fragments[runIndex + 1];
+        const width = (next?.x ?? fragment.x + fragment.width) - fragment.x;
+        const inner = { ...fragment, x: 0, y: Math.max(0, fragment.y - row.top) };
+        return { type: 'FRAME', name: `Run ${runIndex + 1}`, width, height,
+          layoutMode: 'HORIZONTAL', primaryAxisSizingMode: 'FIXED', counterAxisSizingMode: 'FIXED',
+          paddingTop: inner.y, paddingBottom: Math.max(0, height - inner.y - fragment.height),
+          paddingLeft: 0, paddingRight: Math.max(0, width - fragment.width), itemSpacing: 0, children: [inner] };
+      });
+      return { type: 'FRAME', name: `Line ${index + 1}`, width: rect.width, height,
+        layoutMode: 'HORIZONTAL', primaryAxisSizingMode: 'FIXED', counterAxisSizingMode: 'FIXED',
+        paddingLeft: Math.max(0, row.fragments[0].x), paddingRight: 0, paddingTop: 0, paddingBottom: 0, itemSpacing: 0, children: runs };
+    });
+    return { type: 'FRAME', name: layerName(element, element.tagName.toLowerCase()),
+      x: round(rect.left - parentRect.left), y: round(rect.top - parentRect.top), width: round(rect.width), height: round(rect.height),
+      layoutMode: 'VERTICAL', primaryAxisSizingMode: 'FIXED', counterAxisSizingMode: 'FIXED',
+      paddingTop: Math.max(0, rows[0].top), paddingBottom: 0, paddingLeft: 0, paddingRight: 0, itemSpacing: 0,
+      ...frameAppearance(style, warnings, layerName(element, 'p')), children };
+  }
+
+  function frameAppearance(style, warnings, name) {
+    return {
+      ...radiusProperties(style),
+      opacity: round(Number(style.opacity || "1")),
+      clipsContent: style.overflow !== "visible",
+      fills: backgroundPaints(style, warnings, name),
+      ...borderProperties(style, warnings, name),
+      effects: shadowEffects(style.boxShadow, warnings, name),
+    };
+  }
+
   async function serialize(element, parentRect, warnings, depth = 0) {
     const style = getComputedStyle(element);
     const rect = element.getBoundingClientRect();
@@ -768,6 +882,9 @@
       const layer = await imageLayer(element, style, rect, parentRect, warnings);
       return layer ? { ...layer, ...childSizing } : null;
     }
+
+    const inlineText = inlineTextFrame(element, style, rect, parentRect, warnings);
+    if (inlineText) return { ...inlineText, ...childSizing };
 
     if (isTextOnly(element)) {
       const layer = textLayer(element.firstChild, parentRect, style, 0);
@@ -857,12 +974,7 @@
         itemSpacing: px(style.columnGap || style.gap),
         counterAxisSpacing: px(style.rowGap || style.gap),
       } : inferred ?? {}),
-      ...radiusProperties(style),
-      opacity: round(Number(style.opacity || "1")),
-      clipsContent: style.overflow !== "visible",
-      fills: backgroundPaints(style, warnings, name),
-      ...borderProperties(style, warnings, name),
-      effects: shadowEffects(style.boxShadow, warnings, name),
+      ...frameAppearance(style, warnings, name),
       children,
     };
   }

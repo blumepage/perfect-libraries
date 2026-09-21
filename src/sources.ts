@@ -20,7 +20,7 @@ export interface SourceGradientStop {
 }
 
 export interface SourceGradientPaint {
-  type: "GRADIENT_LINEAR";
+  type: "GRADIENT_LINEAR" | "GRADIENT_RADIAL";
   gradientTransform: [[number, number, number], [number, number, number]];
   gradientStops: SourceGradientStop[];
   opacity?: number;
@@ -214,7 +214,7 @@ function validatePaint(value: unknown, path: string, errors: string[]): void {
   }
   if (value.type === "SOLID") {
     validateColor(value.color, `${path}.color`, errors);
-  } else if (value.type === "GRADIENT_LINEAR") {
+  } else if ((value.type === "GRADIENT_LINEAR" || value.type === "GRADIENT_RADIAL")) {
     if (
       !Array.isArray(value.gradientTransform) ||
       value.gradientTransform.length !== 2 ||

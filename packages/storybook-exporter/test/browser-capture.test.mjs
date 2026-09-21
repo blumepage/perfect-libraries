@@ -343,3 +343,48 @@ test("preserves unequal block gaps with editable flow wrappers", async () => {
   assert.deepEqual(result.scene.children.map(child => child.paddingBottom), [4, 12, 0]);
   assert.deepEqual(result.scene.children.map(child => child.children[0].height), [20, 30, 10]);
 });
+
+
+test("captures wrapped bold paragraphs as editable lines and preserves text", async () => {
+  const result = await capture(`<p data-figma-source-node="Rich" style="width:120px;font:14px/20px Arial">Before <strong>bold words</strong> and text wrapping over several lines.</p>`, "Rich");
+  assert.deepEqual(result.warnings, []);
+  assert.equal(result.scene.layoutMode, "VERTICAL");
+  const runs = result.scene.children.flatMap(line => line.children.map(run => run.children[0]));
+  assert.equal(runs.map(run => run.characters).join('').replace(/\s+/g, ' ').trim(), 'Before bold words and text wrapping over several lines.');
+  assert.ok(runs.some(run => run.fontWeight === 700));
+  assert.ok(result.scene.children.length > 1);
+  assert.ok(result.scene.children.every(line => line.children.every(run => run.width > 0 && run.height > 0)));
+});
+
+test("preserves rich paragraph appearance and omits hidden text while retaining its space", async () => {
+  const result = await capture(`<p data-figma-source-node="Rich" style="width:500px;font:14px/20px Arial;opacity:.5;border:2px solid red;border-radius:4px;overflow:hidden;box-shadow:0 1px 2px black">Before <strong>bold</strong><span style="visibility:hidden">secret</span><span style="opacity:0">invisible</span><span style="opacity:.3">dim</span> after</p>`, "Rich");
+  assert.deepEqual(result.warnings, []);
+  assert.equal(result.scene.opacity, .5);
+  assert.equal(result.scene.strokes.length, 1);
+  assert.equal(result.scene.strokeWeight, 2);
+  assert.equal(result.scene.cornerRadius, 4);
+  assert.equal(result.scene.clipsContent, true);
+  assert.equal(result.scene.effects.length, 1);
+  const runs = result.scene.children.flatMap(line => line.children.map(run => run.children[0]));
+  assert.doesNotMatch(runs.map(run => run.characters).join(''), /secret|invisible/);
+  assert.equal(runs.find(run => run.characters === 'dim').opacity, .3);
+  assert.ok(result.scene.children[0].children.find(run => run.children[0].characters === 'bold').paddingRight > 50);
+});
+
+test("captures a centered farthest-corner radial ellipse as a native gradient", async () => {
+  const result = await capture(`<div data-figma-source-node="Radial" style="width:200px;height:100px;background:radial-gradient(rgba(12,18,14,.5) 0%,rgba(12,18,14,.28) 52%,rgba(12,18,14,0) 78%)"></div>`, "Radial");
+  assert.deepEqual(result.warnings, []);
+  const paint = result.scene.fills[0];
+  assert.equal(paint.type, 'GRADIENT_RADIAL');
+  assert.deepEqual(paint.gradientStops.map(stop => stop.position), [0, .52, .78]);
+  assert.ok(Math.abs(paint.gradientStops[0].color.a - .5) < .005);
+  assert.equal(paint.gradientTransform[0][0], Math.SQRT1_2);
+});
+
+test("infers layout for one flow child plus an absolute badge", async () => {
+  const result = await capture(`<li data-figma-source-node="List" style="position:relative;width:200px;padding-left:24px"><span style="position:absolute;left:0;top:0">1</span><p style="margin:0">Content</p></li>`, "List");
+  assert.deepEqual(result.warnings, []);
+  assert.equal(result.scene.layoutMode, 'VERTICAL');
+  assert.equal(result.scene.children[0].layoutPositioning, 'ABSOLUTE');
+  assert.equal(result.scene.paddingLeft, 24);
+});
