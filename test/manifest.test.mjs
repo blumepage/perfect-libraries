@@ -166,3 +166,23 @@ test("validates optional generated text styles and rejects invalid token referen
   manifest.textStyles = [null];
   assert.equal(validateManifest(manifest).ok, false);
 });
+
+
+test("rejects missing axes before Figma can produce an unpublishable component set", () => {
+  const manifest = structuredClone(example);
+  manifest.components[0].variants[0].properties.State = "Default";
+  const result = validateManifest(manifest);
+  assert.equal(result.ok, false);
+  assert.ok(result.errors.some(error => error.includes('must define variant axis "State"')));
+});
+
+test("slots reject root, overlapping paths, duplicate property names and malformed entries", () => {
+  const manifest = structuredClone(example);
+  const component = manifest.components[0];
+  component.slots = [{ name: "Items", layer: "Items" }];
+  assert.equal(validateManifest(manifest).ok, true);
+  for (const slots of [null, {}, [null], [{name:"Items", layer:"$"}], [{name:"Items",layer:"Other"}], [{name:"Items",layer:"Items"},{name:"Child",layer:"Items/Child"}], [{name:"Items",layer:"Items"},{name:"Items",layer:"Other/Items"}]]) {
+    component.slots = slots;
+    assert.equal(validateManifest(manifest).ok, false, JSON.stringify(slots));
+  }
+});

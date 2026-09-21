@@ -227,3 +227,15 @@ test("blocks unresolved nested layers, variants, and properties", () => {
   assert.ok(result.errors.some((error) => error.includes('unknown property "Unknown"')));
   assert.ok(result.errors.some((error) => error.includes('property "Visible" requires a boolean')));
 });
+
+test("slot sources must be real non-root frames on every variant", () => {
+  const {manifest, sources} = fixture();
+  const component = manifest.components[1];
+  component.slots = [{ name: "Content", layer: "Content" }];
+  assert.equal(validateSourceContract(manifest, sources).ok, false);
+  const scene = sources.variants[1].scene;
+  scene.children.push({type:"FRAME", name:"Content", width:80, height:20, layoutMode:"HORIZONTAL", fills:[], children:[]});
+  assert.equal(validateSourceContract(manifest, sources).ok, true);
+  component.slots = [{name:"label",layer:"label"}];
+  assert.equal(validateSourceContract(manifest, sources).ok, false);
+});

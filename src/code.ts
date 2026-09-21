@@ -675,6 +675,12 @@ async function apply(
       if (step.phase === "nested-instances") {
         syncNestedInstances(runtime, componentRuntime, counters, warnings);
       } else {
+        syncSlots(runtime);
+        // Bind after slot conversion so replacement containers retain tokens.
+        for (const definition of runtime.definition.variants) {
+          const variant = runtime.variants.get(definition.id);
+          if (variant) applyBindings(variant, definition.bindings ?? [], variables, counters);
+        }
         syncComponentProperties(runtime, componentRuntime, counters, warnings);
       }
     }
@@ -1619,7 +1625,7 @@ function syncComponentFrames(
 
     if (managedCandidate.component?.type === "COMPONENT") {
       target = managedCandidate.component;
-      replaceComponentContents(target, source);
+      replaceComponentContents(target, source, component.slots ?? []);
       counters.componentsUpdated += 1;
     } else if (managedCandidate.legacyInstances.length > 0) {
       for (const legacyInstance of managedCandidate.legacyInstances) {
@@ -1644,7 +1650,6 @@ function syncComponentFrames(
     target.name = formatVariantName(variant.properties);
     target.description = component.description ?? "";
     tagManaged(target, manifest, "variant", variant.id);
-    applyBindings(target, variant.bindings ?? [], variables, counters);
     enforceExactNodeSize({
       node: target,
       width: source.width,
@@ -1751,7 +1756,18 @@ function createComponentFromSource(source: SceneNode): ComponentNode {
 function replaceComponentContents(
   target: ComponentNode,
   source: SceneNode,
+  slots: Array<{ name: string; layer: string }> = [],
 ): void {
+  // Fail before altering a master if a removed/renamed slot would lose content.
+  const expected = new Set(slots.map(definition => findLayer(target, definition.layer)));
+  const inspect = (node: SceneNode): void => {
+    if (node.type === "INSTANCE") return;
+    if (node.type === "SLOT" && !expected.has(node)) {
+      throw new Error(`Cannot remove or rename existing slot "${node.name}" during regeneration.`);
+    }
+    if ("children" in node) for (const child of node.children) inspect(child);
+  };
+  inspect(target);
   const clone = source.clone();
   const frame: FrameNode | ComponentNode | SceneNode =
     clone.type === "INSTANCE" ? clone.detachInstance() : clone;
@@ -1762,8 +1778,29 @@ function replaceComponentContents(
   const sourceFrame = frame as FrameNode | ComponentNode;
 
   copyFrameProperties(target, sourceFrame);
-  for (const child of [...target.children]) child.remove();
+  // Keep slot identity inside its component throughout refresh. Figma stores
+  // designer content against that node/property; deleting it discards overrides.
+  const preserved = slots.map(definition => ({ definition, node: findLayer(target, definition.layer) }))
+    .filter((entry): entry is { definition: {name: string; layer: string}; node: SlotNode } => entry.node?.type === "SLOT");
+  for (const {node} of preserved) target.appendChild(node);
+  for (const child of [...target.children]) if (!preserved.some(entry => entry.node === child)) child.remove();
   for (const child of [...sourceFrame.children]) target.appendChild(child);
+  // Temporarily hide preserved names so path lookup finds the new source marker.
+  for (const {node} of preserved) node.name = `__preserved_slot_${node.id}`;
+  for (const {definition, node} of preserved) {
+    const marker = findLayer(target, definition.layer);
+    if (!marker || marker.type !== "FRAME" || !marker.parent || !("insertChild" in marker.parent)) throw new Error(`Missing slot source "${definition.layer}".`);
+    const parent = marker.parent;
+    copyFrameProperties(node, marker);
+    for (const child of [...node.children]) child.remove();
+    for (const child of [...marker.children]) node.appendChild(child);
+    parent.insertChild(parent.children.indexOf(marker), node);
+    node.name = definition.name;
+    node.x = marker.x; node.y = marker.y;
+    node.layoutSizingHorizontal = marker.layoutSizingHorizontal;
+    node.layoutSizingVertical = marker.layoutSizingVertical;
+    marker.remove();
+  }
   enforceExactNodeSize({
     node: target,
     width: sourceFrame.width,
@@ -1773,7 +1810,7 @@ function replaceComponentContents(
 }
 
 function copyFrameProperties(
-  target: ComponentNode,
+  target: ComponentNode | SlotNode,
   source: FrameNode | ComponentNode,
 ): void {
   target.layoutMode = source.layoutMode;
@@ -2102,6 +2139,36 @@ function replaceWithInstance(
   setFriendlyInstanceProperties(instance, nested.properties ?? {});
 }
 
+function syncSlots(runtime: ComponentRuntime): void {
+  for (const definition of runtime.definition.slots ?? []) {
+    let propertyKey = Object.keys(runtime.owner.componentPropertyDefinitions).find(key => key === definition.name || key.startsWith(`${definition.name}#`));
+    if (propertyKey && runtime.owner.componentPropertyDefinitions[propertyKey].type !== "SLOT") throw new Error(`Slot "${definition.name}" conflicts with an existing property.`);
+    for (const variant of runtime.variants.values()) {
+      const marker = findLayer(variant, definition.layer);
+      if (!marker || !["FRAME", "SLOT"].includes(marker.type)) throw new Error(`Slot "${definition.layer}" requires a Frame.`);
+      if (marker.type === "SLOT") continue;
+      if (marker.type !== "FRAME" || !marker.parent || !("insertChild" in marker.parent)) throw new Error(`Invalid slot parent.`);
+      const parent = marker.parent;
+      const slot = variant.createSlot();
+      slot.name = definition.name;
+      const ownKey = (slot.componentPropertyReferences as {slotContentId?: string})?.slotContentId;
+      if (!ownKey) throw new Error(`Figma did not create a property for slot "${definition.name}".`);
+      if (propertyKey && ownKey !== propertyKey) {
+        slot.componentPropertyReferences = {slotContentId: propertyKey} as SlotNode["componentPropertyReferences"];
+        // Only remove the newly auto-created orphan, never an existing slot key.
+        runtime.owner.deleteComponentProperty(ownKey);
+      } else propertyKey = ownKey;
+      copyFrameProperties(slot, marker);
+      for (const child of [...marker.children]) slot.appendChild(child);
+      parent.insertChild(parent.children.indexOf(marker), slot);
+      slot.x = marker.x; slot.y = marker.y;
+      slot.layoutSizingHorizontal = marker.layoutSizingHorizontal;
+      slot.layoutSizingVertical = marker.layoutSizingVertical;
+      marker.remove();
+    }
+  }
+}
+
 function syncComponentProperties(
   runtime: ComponentRuntime,
   runtimes: Map<string, ComponentRuntime>,
@@ -2110,7 +2177,7 @@ function syncComponentProperties(
 ): void {
   for (const definition of runtime.definition.properties ?? []) {
     const key = ensureComponentProperty(runtime.owner, definition, runtimes);
-    for (const variant of runtime.variants.values()) {
+    for (const [variantId, variant] of runtime.variants) {
       const node = findLayer(variant, definition.layer);
       if (!node) {
         warnings.push(
@@ -2125,7 +2192,9 @@ function syncComponentProperties(
             `TEXT property "${definition.name}" requires a Text layer, but "${definition.layer}" is ${node.type}.`,
           );
         }
+        const characters = node.characters;
         node.componentPropertyReferences = { ...current, characters: key };
+        node.characters = characters;
       } else if (definition.type === "BOOLEAN") {
         node.componentPropertyReferences = { ...current, visible: key };
       } else {
@@ -2134,7 +2203,14 @@ function syncComponentProperties(
             `INSTANCE_SWAP property "${definition.name}" requires an Instance layer, but "${definition.layer}" is ${node.type}.`,
           );
         }
+        const nested = runtime.definition.variants.find(v => v.id === variantId)?.nestedInstances?.find(n => n.layer === definition.layer);
+        const width = node.width, height = node.height;
+        const horizontal = node.layoutSizingHorizontal, vertical = node.layoutSizingVertical;
         node.componentPropertyReferences = { ...current, mainComponent: key };
+        if (nested) node.swapComponent(resolveNestedTarget(nested, runtimes));
+        node.resizeWithoutConstraints(width, height);
+        node.layoutSizingHorizontal = horizontal;
+        node.layoutSizingVertical = vertical;
       }
       counters.componentPropertiesApplied += 1;
     }

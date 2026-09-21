@@ -138,6 +138,11 @@ export interface ComponentDocumentationDefinition {
   controls?: StorybookControlDefinition[];
 }
 
+export interface SlotDefinition {
+  name: string;
+  layer: string;
+}
+
 export interface ComponentDefinition {
   id: string;
   name: string;
@@ -146,6 +151,7 @@ export interface ComponentDefinition {
   documentation?: ComponentDocumentationDefinition;
   dependencies?: string[];
   properties?: ComponentPropertyDefinition[];
+  slots?: SlotDefinition[];
   variants: ComponentVariantDefinition[];
 }
 
@@ -569,6 +575,19 @@ export function validateManifest(input: unknown): ValidationResult {
         errors.push(pathLabel(`${propertyPath}.layer`, "must be a non-empty string"));
       }
     }
+    const slotNames = new Set<string>();
+    const slotPaths: string[] = [];
+    if (component.slots !== undefined && !Array.isArray(component.slots)) {
+      errors.push(pathLabel(`${path}.slots`, "must be an array"));
+    } else for (const slot of component.slots ?? []) {
+      if (!slot || !nonEmptyString(slot.name) || !nonEmptyString(slot.layer) || slot.layer === "$" || slot.layer.split("/").at(-1) !== slot.name) {
+        errors.push(pathLabel(`${path}.slots`, "requires a named non-root layer whose final path segment equals the slot name"));
+        continue;
+      }
+      if (slotNames.has(slot.name) || propertyNames.has(slot.name) || component.variants.some(variant => isRecord(variant.properties) && slot.name in variant.properties)) errors.push(pathLabel(`${path}.slots`, `duplicate property "${slot.name}"`));
+      if (slotPaths.some(p => p === slot.layer || p.startsWith(`${slot.layer}/`) || slot.layer.startsWith(`${p}/`))) errors.push(pathLabel(`${path}.slots`, "slot layers must not overlap"));
+      slotNames.add(slot.name); slotPaths.push(slot.layer);
+    }
     if (component.variants.length > 30) {
       warnings.push(
         pathLabel(
@@ -578,7 +597,15 @@ export function validateManifest(input: unknown): ValidationResult {
       );
     }
 
+    const variantAxes = new Set(component.variants.flatMap(variant =>
+      isRecord(variant.properties) ? Object.keys(variant.properties) : []));
     component.variants.forEach((variant, variantIndex) => {
+      for (const axis of variantAxes) {
+        if (!isRecord(variant.properties) || !nonEmptyString(variant.properties[axis])) {
+          errors.push(pathLabel(`${path}.variants[${variantIndex}].properties`, `must define variant axis "${axis}" on every variant`));
+        }
+      }
+
       const variantPath = `${path}.variants[${variantIndex}]`;
       if (!nonEmptyString(variant.id)) {
         errors.push(pathLabel(`${variantPath}.id`, "must be a non-empty string"));

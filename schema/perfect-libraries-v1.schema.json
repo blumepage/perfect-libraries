@@ -312,6 +312,15 @@
         }
       }
     },
+    "slot": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["name", "layer"],
+      "properties": {
+        "name": { "type": "string", "minLength": 1 },
+        "layer": { "type": "string", "minLength": 1 }
+      }
+    },
     "component": {
       "type": "object",
       "additionalProperties": false,
@@ -322,6 +331,10 @@
         "description": { "type": "string" },
         "documentationUrl": { "type": "string", "format": "uri" },
         "documentation": { "$ref": "#/$defs/componentDocumentation" },
+        "slots": {
+          "type": "array",
+          "items": { "$ref": "#/$defs/slot" }
+        },
         "dependencies": {
           "type": "array",
           "items": { "type": "string", "minLength": 1 }
