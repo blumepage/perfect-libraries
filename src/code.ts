@@ -832,7 +832,7 @@ function sourcePaints(paints: SourcePaint[] | undefined): Paint[] {
 }
 
 function sourceEffects(effects: SourceEffect[] | undefined): Effect[] {
-  return (effects ?? []).map((effect) => ({
+  return (effects ?? []).map((effect): Effect => effect.type === "LAYER_BLUR" ? ({ type: "LAYER_BLUR", blurType: "NORMAL", radius: effect.radius, visible: true }) : ({
     type: effect.type,
     color: effect.color,
     offset: effect.offset,

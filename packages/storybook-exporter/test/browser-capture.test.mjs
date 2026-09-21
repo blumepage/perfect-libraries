@@ -388,3 +388,24 @@ test("infers layout for one flow child plus an absolute badge", async () => {
   assert.equal(result.scene.children[0].layoutPositioning, 'ABSOLUTE');
   assert.equal(result.scene.paddingLeft, 24);
 });
+
+
+test("preserves CSS blur as an editable layer effect", async () => {
+  const result = await capture('<main data-figma-source-node="Blur"><span style="filter:blur(5px);display:inline-block">person@example.com</span></main>', 'Blur');
+  const nodes=[]; const visit=node=>{nodes.push(node); for(const child of node.children??[]) visit(child)}; visit(result.scene);
+  assert.ok(nodes.some(node=>node.effects?.some(effect=>effect.type==='LAYER_BLUR' && effect.radius===5)));
+  assert.ok(nodes.some(node=>node.type==='TEXT' && node.characters==='person@example.com'));
+  assert.deepEqual(result.warnings, []);
+});
+
+
+test("captures centered grid labels above a spanning control", async () => {
+  const result = await capture('<main data-figma-source-node="Grid"><div style="display:grid;grid-template-columns:1fr auto;align-items:center;width:300px;gap:8px;padding:12px"><div style="height:40px">Label</div><span>50</span><div style="grid-column:span 2;height:24px;background:#999"></div></div></main>', 'Grid');
+  assert.ok(!result.warnings.some(w => w.includes('cannot become Auto Layout')));
+  const grid = result.scene.children[0];
+  assert.equal(grid.layoutMode, 'VERTICAL');
+  assert.equal(grid.children.length, 2);
+  assert.equal(grid.children[0].layoutMode, 'HORIZONTAL');
+  assert.equal(grid.children[0].children.length, 2);
+  assert.ok(grid.children[0].children[1].paddingTop > 0);
+});

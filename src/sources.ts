@@ -28,7 +28,9 @@ export interface SourceGradientPaint {
 
 export type SourcePaint = SourceSolidPaint | SourceGradientPaint;
 
-export interface SourceEffect {
+export type SourceEffect = SourceShadowEffect | { type: "LAYER_BLUR"; radius: number };
+
+export interface SourceShadowEffect {
   type: "DROP_SHADOW" | "INNER_SHADOW";
   color: SourceColor & { a: number };
   offset: { x: number; y: number };
@@ -260,6 +262,10 @@ function validatePaint(value: unknown, path: string, errors: string[]): void {
 function validateEffect(value: unknown, path: string, errors: string[]): void {
   if (!isRecord(value)) {
     errors.push(`${path} must be an effect object.`);
+    return;
+  }
+  if (value.type === "LAYER_BLUR") {
+    if (!finiteNumber(value.radius) || value.radius < 0) errors.push(`${path}.radius must be a non-negative number.`);
     return;
   }
   if (!["DROP_SHADOW", "INNER_SHADOW"].includes(String(value.type))) {

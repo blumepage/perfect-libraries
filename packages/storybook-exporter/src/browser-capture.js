@@ -157,7 +157,7 @@
         ...radiusProperties(style),
         opacity: round(Number(style.opacity || "1")),
         ...borderProperties(style, warnings, name),
-        effects: shadowEffects(style.boxShadow, warnings, name),
+        effects: appearanceEffects(style, warnings, name),
       };
     } catch (error) {
       const reason = error instanceof Error ? ` (${error.message})` : "";
@@ -678,6 +678,45 @@
     };
   }
 
+  // Grid rows may contain vertically centered labels plus a spanning control.
+  // Preserve the measured rows as nested Auto Layout frames instead of treating
+  // their unequal tops as a single wrapped row of equal-height cells.
+  function inferredGridRows(children, rect) {
+    const rows = [];
+    for (const child of [...children].sort((a, b) => (a.y ?? 0) - (b.y ?? 0))) {
+      const top = child.y ?? 0, bottom = top + child.height;
+      const matches = rows.filter(row => top < row.bottom - .5 && bottom > row.top + .5);
+      if (matches.length > 1) return null;
+      const row = matches[0];
+      if (row) { row.children.push(child); row.top = Math.min(row.top, top); row.bottom = Math.max(row.bottom, bottom); }
+      else rows.push({ top, bottom, children: [child] });
+    }
+    if (rows.length < 2) return null;
+    for (const row of rows) {
+      row.children.sort((a, b) => (a.x ?? 0) - (b.x ?? 0));
+      if (!orderedWithoutOverlap(row.children, "x")) return null;
+    }
+    const padding = layoutPadding(children, rect);
+    const frames = rows.map((row, index) => ({
+      type: 'FRAME', name: `Grid row ${index + 1}`, x: 0, y: row.top,
+      width: rect.width, height: (rows[index + 1]?.top ?? row.bottom) - row.top,
+      layoutMode: 'HORIZONTAL', primaryAxisSizingMode: 'FIXED', counterAxisSizingMode: 'FIXED',
+      paddingLeft: 0, paddingRight: 0, paddingTop: 0, paddingBottom: 0, itemSpacing: 0,
+      children: row.children.map((child, column) => {
+        const left = child.x ?? 0;
+        const start = column === 0 ? 0 : (row.children[column - 1].x ?? 0) + row.children[column - 1].width;
+        const top = Math.max(0, (child.y ?? 0) - row.top);
+        return { type: 'FRAME', name: `Grid cell ${column + 1}`, width: left - start + child.width, height: row.bottom - row.top,
+          layoutMode: 'VERTICAL', primaryAxisSizingMode: 'FIXED', counterAxisSizingMode: 'FIXED',
+          paddingLeft: Math.max(0, left - start), paddingRight: 0, paddingTop: top, paddingBottom: Math.max(0, row.bottom - (child.y ?? 0) - child.height), itemSpacing: 0,
+          children: [{...child, x: 0, y: 0}] };
+      })
+    }));
+    children.splice(0, children.length, ...frames);
+    return { layoutMode: 'VERTICAL', primaryAxisAlignItems: 'MIN', counterAxisAlignItems: 'MIN', layoutWrap: 'NO_WRAP',
+      paddingTop: padding.paddingTop, paddingBottom: padding.paddingBottom, paddingLeft: 0, paddingRight: 0, itemSpacing: 0, counterAxisSpacing: 0 };
+  }
+
   function inferLayout(element, style, children, rect) {
     if (children.length === 0) return null;
     if (children.length === 1) return {
@@ -687,6 +726,7 @@
     if (style.display === "grid" || style.display === "inline-grid") {
       return (
         inferredWrappedLayout(children, rect) ||
+        inferredGridRows(children, rect) ||
         inferredLinearLayout(children, rect, "x") ||
         inferredLinearLayout(children, rect, "y")
       );
@@ -704,6 +744,7 @@
       solidPaint(style.backgroundColor) ||
       style.backgroundImage !== "none" ||
       style.boxShadow !== "none" ||
+      (style.filter && style.filter !== "none") ||
       px(style.borderTopWidth) +
         px(style.borderRightWidth) +
         px(style.borderBottomWidth) +
@@ -848,6 +889,16 @@
       ...frameAppearance(style, warnings, layerName(element, 'p')), children };
   }
 
+  function appearanceEffects(style, warnings, name) {
+    const effects = shadowEffects(style.boxShadow, warnings, name);
+    if (style.filter && style.filter !== "none") {
+      const blur = /^blur\(([\d.]+)px\)$/.exec(style.filter);
+      if (blur) effects.push({ type: "LAYER_BLUR", radius: Number(blur[1]) });
+      else warnings.push(`${name} has an unsupported filter: ${style.filter}.`);
+    }
+    return effects;
+  }
+
   function frameAppearance(style, warnings, name) {
     return {
       ...radiusProperties(style),
@@ -855,7 +906,7 @@
       clipsContent: style.overflow !== "visible",
       fills: backgroundPaints(style, warnings, name),
       ...borderProperties(style, warnings, name),
-      effects: shadowEffects(style.boxShadow, warnings, name),
+      effects: appearanceEffects(style, warnings, name),
     };
   }
 
@@ -944,6 +995,10 @@
     const inferred = flex
       ? null
       : inferLayout(element, style, flowChildren, rect);
+    if (inferred && flowChildren.some(child => child.name?.startsWith("Grid row "))) {
+      const absolute = children.filter(child => child.layoutPositioning === "ABSOLUTE");
+      children.splice(0, children.length, ...flowChildren, ...absolute);
+    }
     if (!flex && children.length > 1 && !inferred) {
       warnings.push(
         `${layerName(element, element.tagName.toLowerCase())} has ${children.length} children and cannot become Auto Layout (${display}).`,

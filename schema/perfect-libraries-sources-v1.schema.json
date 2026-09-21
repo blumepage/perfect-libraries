@@ -105,24 +105,69 @@
       }
     },
     "effect": {
-      "type": "object",
-      "additionalProperties": false,
-      "required": ["type", "color", "offset", "radius"],
-      "properties": {
-        "type": { "enum": ["DROP_SHADOW", "INNER_SHADOW"] },
-        "color": { "$ref": "#/$defs/rgba" },
-        "offset": {
+      "oneOf": [
+        {
           "type": "object",
           "additionalProperties": false,
-          "required": ["x", "y"],
+          "required": [
+            "type",
+            "color",
+            "offset",
+            "radius"
+          ],
           "properties": {
-            "x": { "type": "number" },
-            "y": { "type": "number" }
+            "type": {
+              "enum": [
+                "DROP_SHADOW",
+                "INNER_SHADOW"
+              ]
+            },
+            "color": {
+              "$ref": "#/$defs/rgba"
+            },
+            "offset": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": [
+                "x",
+                "y"
+              ],
+              "properties": {
+                "x": {
+                  "type": "number"
+                },
+                "y": {
+                  "type": "number"
+                }
+              }
+            },
+            "radius": {
+              "type": "number",
+              "minimum": 0
+            },
+            "spread": {
+              "type": "number"
+            }
           }
         },
-        "radius": { "type": "number", "minimum": 0 },
-        "spread": { "type": "number" }
-      }
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "type",
+            "radius"
+          ],
+          "properties": {
+            "type": {
+              "const": "LAYER_BLUR"
+            },
+            "radius": {
+              "type": "number",
+              "minimum": 0
+            }
+          }
+        }
+      ]
     },
     "base": {
       "type": "object",
