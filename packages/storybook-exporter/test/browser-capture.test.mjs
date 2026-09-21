@@ -416,3 +416,10 @@ test("does not flatten away blur inside rich inline text", async () => {
   const nodes=[]; const visit=node=>{nodes.push(node); for(const child of node.children??[]) visit(child)}; visit(result.scene);
   assert.ok(nodes.some(node=>node.effects?.some(effect=>effect.type==='LAYER_BLUR' && effect.radius===5)));
 });
+
+
+test("preserves a single CSS drop shadow filter", async () => {
+  const result = await capture('<div data-figma-source-node="Shadow" style="width:40px;height:40px;filter:drop-shadow(0px 4px 7px rgba(100,80,200,.2))"><span>Icon</span></div>', 'Shadow');
+  assert.ok(result.scene.effects.some(effect=>effect.type==='DROP_SHADOW' && effect.offset.y===4 && effect.radius===7));
+  assert.deepEqual(result.warnings, []);
+});

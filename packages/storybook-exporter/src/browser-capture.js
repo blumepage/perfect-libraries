@@ -893,7 +893,9 @@
     const effects = shadowEffects(style.boxShadow, warnings, name);
     if (style.filter && style.filter !== "none") {
       const blur = /^blur\(([\d.]+)px\)$/.exec(style.filter);
+      const dropShadow = /^drop-shadow\((.+)\)$/.exec(style.filter);
       if (blur) effects.push({ type: "LAYER_BLUR", radius: Number(blur[1]) });
+      else if (dropShadow) effects.push(...shadowEffects(dropShadow[1], warnings, name));
       else warnings.push(`${name} has an unsupported filter: ${style.filter}.`);
     }
     return effects;
