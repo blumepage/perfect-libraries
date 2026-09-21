@@ -149,6 +149,17 @@ export interface ComponentDefinition {
   variants: ComponentVariantDefinition[];
 }
 
+export interface TextStyleDefinition {
+  id: string;
+  name: string;
+  fontFamily: string;
+  fontStyle: string;
+  fontSize: number;
+  lineHeight: number;
+  fontSizeToken?: string;
+  lineHeightToken?: string;
+}
+
 export interface PerfectLibrariesManifest {
   $schema: typeof PERFECT_LIBRARIES_SCHEMA;
   version: 1;
@@ -157,6 +168,7 @@ export interface PerfectLibrariesManifest {
     name: string;
     release: string;
   };
+  textStyles?: TextStyleDefinition[];
   tokenCollections: TokenCollectionDefinition[];
   components: ComponentDefinition[];
 }
@@ -384,6 +396,27 @@ export function validateManifest(input: unknown): ValidationResult {
       }
     });
   });
+
+  if (manifest.textStyles !== undefined && !Array.isArray(manifest.textStyles)) {
+    errors.push("textStyles must be an array");
+  } else {
+    const ids = new Set<string>();
+    const names = new Set<string>();
+    for (const style of manifest.textStyles ?? []) {
+      if (!isRecord(style)) { errors.push("textStyles entries must be objects"); continue; }
+      for (const field of ["id", "name", "fontFamily", "fontStyle"] as const) {
+        if (!nonEmptyString(style[field])) errors.push(`textStyles.${field} must be a non-empty string`);
+      }
+      if (ids.has(style.id) || names.has(style.name)) errors.push("textStyles must have unique ids and names");
+      ids.add(style.id); names.add(style.name);
+      for (const field of ["fontSize", "lineHeight"] as const) {
+        if (!Number.isFinite(style[field]) || style[field] <= 0) errors.push(`textStyles.${field} must be positive`);
+      }
+      for (const field of ["fontSizeToken", "lineHeightToken"] as const) {
+        if (style[field] !== undefined && tokenTypes.get(style[field]) !== "FLOAT") errors.push(`textStyles.${field} must reference a FLOAT token`);
+      }
+    }
+  }
 
   for (const collection of manifest.tokenCollections) {
     for (const token of collection.tokens) {

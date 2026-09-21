@@ -546,7 +546,44 @@
         (child[position] ?? 0) -
         ((children[index][position] ?? 0) + children[index][size]),
     );
-    if (!approximatelyUniform(gaps)) return null;
+    if (!approximatelyUniform(gaps)) {
+      // Preserve unequal CSS margins as padding on editable flow containers.
+      const padding = layoutPadding(children, rect);
+      const crossPosition = axis === "x" ? "y" : "x";
+      const crossSize = axis === "x" ? "height" : "width";
+      const start = Math.min(...children.map(child => child[crossPosition] ?? 0));
+      const end = Math.max(...children.map(child => (child[crossPosition] ?? 0) + child[crossSize]));
+      children.forEach((child, index) => {
+        const inner = { ...child };
+        const gap = Math.max(0, gaps[index] ?? 0);
+        const inset = Math.max(0, (inner[crossPosition] ?? 0) - start);
+        const wrapper = {
+          type: "FRAME", name: `Flow ${index + 1}`,
+          width: axis === "x" ? inner.width + gap : end - start,
+          height: axis === "y" ? inner.height + gap : end - start,
+          x: axis === "x" ? inner.x : start,
+          y: axis === "y" ? inner.y : start,
+          layoutMode: axis === "x" ? "HORIZONTAL" : "VERTICAL",
+          primaryAxisSizingMode: "FIXED", counterAxisSizingMode: "FIXED",
+          primaryAxisAlignItems: "MIN", counterAxisAlignItems: "MIN",
+          paddingTop: axis === "x" ? inset : 0,
+          paddingLeft: axis === "y" ? inset : 0,
+          paddingBottom: axis === "y" ? gap : Math.max(0, end - start - inset - inner.height),
+          paddingRight: axis === "x" ? gap : Math.max(0, end - start - inset - inner.width),
+          itemSpacing: 0, children: [inner]
+        };
+        inner.x = wrapper.paddingLeft;
+        inner.y = wrapper.paddingTop;
+        // Keep the reference shared by children and flowChildren.
+        for (const key of Object.keys(child)) delete child[key];
+        Object.assign(child, wrapper);
+      });
+      return {
+        layoutMode: axis === "x" ? "HORIZONTAL" : "VERTICAL",
+        primaryAxisAlignItems: "MIN", counterAxisAlignItems: "MIN",
+        layoutWrap: "NO_WRAP", ...padding, itemSpacing: 0, counterAxisSpacing: 0
+      };
+    }
     return {
       layoutMode: axis === "x" ? "HORIZONTAL" : "VERTICAL",
       primaryAxisAlignItems: "MIN",

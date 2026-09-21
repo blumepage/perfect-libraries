@@ -29,6 +29,55 @@
         "release": { "type": "string", "minLength": 1 }
       }
     },
+    "textStyles": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "id",
+          "name",
+          "fontFamily",
+          "fontStyle",
+          "fontSize",
+          "lineHeight"
+        ],
+        "properties": {
+          "id": {
+            "type": "string",
+            "minLength": 1
+          },
+          "name": {
+            "type": "string",
+            "minLength": 1
+          },
+          "fontFamily": {
+            "type": "string",
+            "minLength": 1
+          },
+          "fontStyle": {
+            "type": "string",
+            "minLength": 1
+          },
+          "fontSizeToken": {
+            "type": "string",
+            "minLength": 1
+          },
+          "lineHeightToken": {
+            "type": "string",
+            "minLength": 1
+          },
+          "fontSize": {
+            "type": "number",
+            "exclusiveMinimum": 0
+          },
+          "lineHeight": {
+            "type": "number",
+            "exclusiveMinimum": 0
+          }
+        }
+      }
+    },
     "tokenCollections": {
       "type": "array",
       "items": { "$ref": "#/$defs/tokenCollection" }

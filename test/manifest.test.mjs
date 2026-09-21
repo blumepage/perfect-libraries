@@ -152,3 +152,17 @@ test("the built Figma manifest resolves bundle paths beside itself", () => {
   ]);
   assert.match(pluginManifest.networkAccess.reasoning, /never uploads/i);
 });
+
+
+test("validates optional generated text styles and rejects invalid token references", () => {
+  const manifest = structuredClone(example);
+  manifest.textStyles = [{ id: "body", name: "Body/Base", fontFamily: "SN Pro", fontStyle: "Regular", fontSize: 13, lineHeight: 18 }];
+  assert.equal(validateManifest(manifest).ok, true);
+  manifest.textStyles[0].fontSizeToken = "missing";
+  assert.equal(validateManifest(manifest).ok, false);
+  delete manifest.textStyles[0].fontSizeToken;
+  manifest.textStyles.push({ ...manifest.textStyles[0] });
+  assert.equal(validateManifest(manifest).ok, false);
+  manifest.textStyles = [null];
+  assert.equal(validateManifest(manifest).ok, false);
+});

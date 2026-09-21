@@ -627,7 +627,31 @@ async function apply(
   const warnings = [...validation.warnings, ...sourceWarnings, ...sourceLookup.warnings];
 
   try {
+    // Load all fonts and reject unmanaged name conflicts before any token mutation.
+    const existingTextStyles = await figma.getLocalTextStylesAsync();
+    for (const definition of manifest.textStyles ?? []) {
+      const existing = existingTextStyles.find(style => style.name === definition.name);
+      if (existing && (existing.getSharedPluginData(PLUGIN_NAMESPACE, "libraryId") !== manifest.library.id || existing.getSharedPluginData(PLUGIN_NAMESPACE, "entityId") !== definition.id)) {
+        throw new Error(`Text style "${definition.name}" is not managed by this library.`);
+      }
+      await figma.loadFontAsync({ family: definition.fontFamily, style: definition.fontStyle });
+    }
     const variables = await syncVariables(manifest, counters);
+    for (const definition of manifest.textStyles ?? []) {
+      const style = existingTextStyles.find(candidate =>
+        candidate.getSharedPluginData(PLUGIN_NAMESPACE, "libraryId") === manifest.library.id &&
+        candidate.getSharedPluginData(PLUGIN_NAMESPACE, "entityId") === definition.id
+      ) ?? figma.createTextStyle();
+      style.name = definition.name;
+      style.fontName = { family: definition.fontFamily, style: definition.fontStyle };
+      style.fontSize = definition.fontSize;
+      style.lineHeight = { unit: "PIXELS", value: definition.lineHeight };
+      style.setBoundVariable("fontSize", definition.fontSizeToken ? variables.get(definition.fontSizeToken)! : null);
+      style.setBoundVariable("lineHeight", definition.lineHeightToken ? variables.get(definition.lineHeightToken)! : null);
+      style.setSharedPluginData(PLUGIN_NAMESPACE, "libraryId", manifest.library.id);
+      style.setSharedPluginData(PLUGIN_NAMESPACE, "entityId", definition.id);
+      style.description = `Generated from Storybook · ${manifest.library.name}`;
+    }
     const orderedComponents = sortComponents(manifest.components);
     const componentRuntime = new Map<string, ComponentRuntime>();
 

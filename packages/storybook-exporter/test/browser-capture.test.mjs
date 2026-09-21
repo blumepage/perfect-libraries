@@ -328,3 +328,18 @@ test("rejects missing and ambiguous visible portal selectors", async () => {
     /must match exactly one visible element; found 2/,
   );
 });
+
+
+test("preserves unequal block gaps with editable flow wrappers", async () => {
+  const result = await capture(`<main data-figma-source-node="Unequal" style="width:200px;padding:10px">
+    <div style="height:20px;background:red"></div>
+    <div style="height:30px;margin-top:4px;background:blue"></div>
+    <div style="height:10px;margin-top:12px;background:green"></div>
+  </main>`, "Unequal");
+  assert.deepEqual(result.warnings, []);
+  assert.equal(result.scene.layoutMode, "VERTICAL");
+  assert.equal(result.scene.itemSpacing, 0);
+  assert.deepEqual(result.scene.children.map(child => child.height), [24, 42, 10]);
+  assert.deepEqual(result.scene.children.map(child => child.paddingBottom), [4, 12, 0]);
+  assert.deepEqual(result.scene.children.map(child => child.children[0].height), [20, 30, 10]);
+});
