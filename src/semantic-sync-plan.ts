@@ -1,3 +1,5 @@
+import type { SlotDefinition, VariableBindingDefinition } from "./manifest";
+
 export type SemanticSyncPhase = "nested-instances" | "component-properties";
 
 export interface SemanticSyncStep {
@@ -17,4 +19,13 @@ export function createSemanticSyncPlan(
     { componentId, phase: "nested-instances" as const },
     { componentId, phase: "component-properties" as const },
   ]);
+}
+
+/** Slot replacement invalidates only the container itself, not its descendants. */
+export function partitionSlotBindings(bindings: VariableBindingDefinition[], slots: SlotDefinition[] = []) {
+  const layers = new Set(slots.map(slot => slot.layer));
+  return {
+    beforeComposition: bindings.filter(binding => !layers.has(binding.layer)),
+    afterSlots: bindings.filter(binding => layers.has(binding.layer)),
+  };
 }

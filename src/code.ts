@@ -39,7 +39,7 @@ import {
   missingSourceContextError,
   selectReleaseSourcesUrl,
 } from "./source-resolution";
-import { createSemanticSyncPlan } from "./semantic-sync-plan";
+import { createSemanticSyncPlan, partitionSlotBindings } from "./semantic-sync-plan";
 import {
   createDocumentationPlan,
   createRepresentativeCombinationGroups,
@@ -676,10 +676,11 @@ async function apply(
         syncNestedInstances(runtime, componentRuntime, counters, warnings);
       } else {
         syncSlots(runtime);
-        // Bind after slot conversion so replacement containers retain tokens.
+        // Only slot containers are replaced here. All other bindings retain
+        // their original pre-composition ordering against captured source layers.
         for (const definition of runtime.definition.variants) {
           const variant = runtime.variants.get(definition.id);
-          if (variant) applyBindings(variant, definition.bindings ?? [], variables, counters);
+          if (variant) applyBindings(variant, partitionSlotBindings(definition.bindings ?? [], runtime.definition.slots).afterSlots, variables, counters);
         }
         syncComponentProperties(runtime, componentRuntime, counters, warnings);
       }
@@ -1650,6 +1651,7 @@ function syncComponentFrames(
     target.name = formatVariantName(variant.properties);
     target.description = component.description ?? "";
     tagManaged(target, manifest, "variant", variant.id);
+    applyBindings(target, partitionSlotBindings(variant.bindings ?? [], component.slots).beforeComposition, variables, counters);
     enforceExactNodeSize({
       node: target,
       width: source.width,
@@ -1796,6 +1798,9 @@ function replaceComponentContents(
     for (const child of [...marker.children]) node.appendChild(child);
     parent.insertChild(parent.children.indexOf(marker), node);
     node.name = definition.name;
+    node.layoutPositioning = marker.layoutPositioning;
+    node.constraints = marker.constraints;
+    node.rotation = marker.rotation;
     node.x = marker.x; node.y = marker.y;
     node.layoutSizingHorizontal = marker.layoutSizingHorizontal;
     node.layoutSizingVertical = marker.layoutSizingVertical;
@@ -2161,6 +2166,9 @@ function syncSlots(runtime: ComponentRuntime): void {
       copyFrameProperties(slot, marker);
       for (const child of [...marker.children]) slot.appendChild(child);
       parent.insertChild(parent.children.indexOf(marker), slot);
+      slot.layoutPositioning = marker.layoutPositioning;
+      slot.constraints = marker.constraints;
+      slot.rotation = marker.rotation;
       slot.x = marker.x; slot.y = marker.y;
       slot.layoutSizingHorizontal = marker.layoutSizingHorizontal;
       slot.layoutSizingVertical = marker.layoutSizingVertical;
