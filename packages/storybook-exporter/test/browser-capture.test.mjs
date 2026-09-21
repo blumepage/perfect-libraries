@@ -409,3 +409,10 @@ test("captures centered grid labels above a spanning control", async () => {
   assert.equal(grid.children[0].children.length, 2);
   assert.ok(grid.children[0].children[1].paddingTop > 0);
 });
+
+
+test("does not flatten away blur inside rich inline text", async () => {
+  const result = await capture('<p data-figma-source-node="Rich">Email <span style="filter:blur(5px)">person@example.com</span></p>', 'Rich');
+  const nodes=[]; const visit=node=>{nodes.push(node); for(const child of node.children??[]) visit(child)}; visit(result.scene);
+  assert.ok(nodes.some(node=>node.effects?.some(effect=>effect.type==='LAYER_BLUR' && effect.radius===5)));
+});

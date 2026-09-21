@@ -821,7 +821,7 @@
       return ['SPAN', 'A', 'STRONG', 'EM', 'B', 'I'].includes(child.tagName) &&
         css.display === 'inline' && css.backgroundColor === 'rgba(0, 0, 0, 0)' &&
         css.backgroundImage === 'none' && css.textDecorationLine === 'none' &&
-        css.boxShadow === 'none' && ['Top', 'Right', 'Bottom', 'Left'].every(side => px(css[`border${side}Width`]) === 0);
+        css.boxShadow === 'none' && (!css.filter || css.filter === 'none') && ['Top', 'Right', 'Bottom', 'Left'].every(side => px(css[`border${side}Width`]) === 0);
     })) return null;
     const walker = document.createTreeWalker(element, NodeFilter.SHOW_TEXT);
     const fragments = [];
