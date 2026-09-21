@@ -456,3 +456,16 @@ test("does not infer fill sizing for fixed or multi-row grid cells", async () =>
     assert.ok(children.every(child => child.layoutSizingHorizontal !== "FILL"));
   }
 });
+
+
+test("does not stretch fixed or capped single-row fractional grid cells", async () => {
+  for (const style of ["width:50px", "width:159px", "max-width:200px", "justify-self:start"]) {
+    const result = await capture(`<div data-figma-source-node="Grid" data-figma-source-root="child"><div style="display:grid;width:320px;grid-template-columns:repeat(2,minmax(0,1fr));gap:2px"><button style="${style}">A</button><button style="${style}">B</button></div></div>`, "Grid");
+    assert.ok(result.scene.children.every(child => child.layoutSizingHorizontal !== "FILL"), style);
+  }
+});
+
+test("stretches full-width single-row fractional grid cells", async () => {
+  const result = await capture(`<div data-figma-source-node="Grid" data-figma-source-root="child"><div style="display:grid;width:320px;grid-template-columns:repeat(2,minmax(0,1fr));gap:2px"><button style="width:100%">A</button><button style="width:100%">B</button></div></div>`, "Grid");
+  assert.ok(result.scene.children.every(child => child.layoutSizingHorizontal === "FILL"));
+});

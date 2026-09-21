@@ -803,7 +803,19 @@
         return css.display !== "none" && css.position !== "absolute" && css.position !== "fixed";
       });
       const bounds = cells.map(child => child.getBoundingClientRect());
-      if (equalTracks && cells.length === Number(equalTracks[1]) && bounds.length &&
+      const trackWidths = parentStyle.gridTemplateColumns.split(/\s+/).map(track => /^\d+(?:\.\d+)?px$/.test(track) ? parseFloat(track) : NaN);
+      const stretchable = cells.every((child, index) => {
+        const css = getComputedStyle(child);
+        const width = child.computedStyleMap?.().get("width");
+        const alignment = css.justifySelf === "auto" ? parentStyle.justifyItems : css.justifySelf;
+        const fluidWidth = String(width) === "auto"
+          ? ["normal", "stretch"].includes(alignment)
+          : width?.unit === "percent" && width.value === 100;
+        return fluidWidth && css.maxWidth === "none" &&
+          px(css.marginLeft) === 0 && px(css.marginRight) === 0 &&
+          Math.abs(bounds[index].width - trackWidths[index]) < 0.5;
+      });
+      if (stretchable && trackWidths.length === cells.length && equalTracks && cells.length === Number(equalTracks[1]) && bounds.length &&
           bounds.every(rect => Math.abs(rect.top - bounds[0].top) < 0.5 && Math.abs(rect.width - bounds[0].width) < 0.5)) {
         return { layoutSizingHorizontal: "FILL" };
       }
