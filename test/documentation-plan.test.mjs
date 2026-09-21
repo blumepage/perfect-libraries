@@ -1,7 +1,10 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 
-import { createDocumentationPlan } from "../dist/documentation-plan.mjs";
+import {
+  createDocumentationPlan,
+  createRepresentativeCombinationGroups,
+} from "../dist/documentation-plan.mjs";
 
 test("documentation plan keeps exact combinations and reverse relationships", () => {
   const plan = createDocumentationPlan([
@@ -65,6 +68,42 @@ test("documentation plan keeps exact combinations and reverse relationships", ()
   assert.deepEqual(plan.groups[0].components[0].usedBy, ["Button"]);
 });
 
+test("documentation pages follow the design-system hierarchy", () => {
+  const names = [
+    "Views",
+    "Molecules",
+    "Layouts",
+    "Foundations",
+    "Organisms",
+    "Atoms",
+    "Navigation",
+  ];
+  const plan = createDocumentationPlan(
+    names.map((group) => ({
+      id: group.toLowerCase(),
+      name: group,
+      documentation: { groupId: group.toLowerCase(), group },
+      variants: [
+        {
+          id: `${group.toLowerCase()}-default`,
+          sourceNode: `${group} / Default`,
+          properties: { State: "Default" },
+        },
+      ],
+    })),
+  );
+
+  assert.deepEqual(plan.groups.map((group) => group.name), [
+    "Foundations",
+    "Atoms",
+    "Molecules",
+    "Organisms",
+    "Navigation",
+    "Layouts",
+    "Views",
+  ]);
+});
+
 test("documentation copy remains complete for a component without variant axes", () => {
   const plan = createDocumentationPlan([
     {
@@ -88,6 +127,57 @@ test("documentation copy remains complete for a component without variant axes",
     "Keep the component as a linked instance so future library updates continue to apply.",
     "Use the linked Storybook story as the implementation and behavior reference.",
   ]);
+});
+
+test("representative preview groups vary one property axis at a time", () => {
+  const plan = createDocumentationPlan([
+    {
+      id: "button",
+      name: "Button",
+      variants: [
+        { id: "primary-small", sourceNode: "Button / Primary / Small", properties: { Style: "Primary", Size: "Small" } },
+        { id: "primary-medium", sourceNode: "Button / Primary / Medium", properties: { Style: "Primary", Size: "Medium" } },
+        { id: "primary-large", sourceNode: "Button / Primary / Large", properties: { Style: "Primary", Size: "Large" } },
+        { id: "accent-medium", sourceNode: "Button / Accent / Medium", properties: { Style: "Accent", Size: "Medium" } },
+        { id: "ghost-medium", sourceNode: "Button / Ghost / Medium", properties: { Style: "Ghost", Size: "Medium" } },
+      ],
+    },
+  ]);
+  const button = plan.groups[0].components[0];
+  const groups = createRepresentativeCombinationGroups(button);
+
+  assert.deepEqual(
+    groups.map((group) => ({
+      axis: group.axis,
+      variants: group.combinations.map((combination) => combination.variantId),
+    })),
+    [
+      {
+        axis: "Style",
+        variants: ["primary-medium", "accent-medium", "ghost-medium"],
+      },
+      {
+        axis: "Size",
+        variants: ["primary-small", "primary-medium", "primary-large"],
+      },
+    ],
+  );
+  assert.equal(
+    new Set(
+      groups[0].combinations.map((combination) =>
+        combination.properties.find((property) => property.name === "Size")?.value,
+      ),
+    ).size,
+    1,
+  );
+  assert.equal(
+    new Set(
+      groups[1].combinations.map((combination) =>
+        combination.properties.find((property) => property.name === "Style")?.value,
+      ),
+    ).size,
+    1,
+  );
 });
 
 test("documentation group ids are unique and reject conflicting names", () => {

@@ -157,7 +157,7 @@
         ...radiusProperties(style),
         opacity: round(Number(style.opacity || "1")),
         ...borderProperties(style, warnings, name),
-        effects: shadowEffects(style.boxShadow, warnings, name),
+        effects: appearanceEffects(style, warnings, name),
       };
     } catch (error) {
       const reason = error instanceof Error ? ` (${error.message})` : "";
@@ -318,11 +318,34 @@
     };
   }
 
+  function radialGradient(value) {
+    const match = /^radial-gradient\((.*)\)$/i.exec(value.trim());
+    if (!match) return null;
+    const parts = splitTopLevel(match[1]);
+    // Support the CSS default: a centered farthest-corner ellipse. Other
+    // shapes/positions remain blocking until their geometry is implemented.
+    if (/^(ellipse(?: farthest-corner)?|farthest-corner(?: ellipse)?)$/.test(parts[0])) parts.shift();
+    const stops = parts.map(part => {
+      const parsed = colorAndPosition(part);
+      const color = parsed && rgbaColor(parsed.color);
+      if (!color || (parsed.position && !/^-?\d+(?:\.\d+)?%$/.test(parsed.position))) return null;
+      return { position: stopPosition(parsed.position), color };
+    });
+    if (stops.length < 2 || stops.some(stop => !stop)) return null;
+    fillMissingStopPositions(stops);
+    // Figma maps the frame into gradient space. The farthest-corner ellipse
+    // has radii sqrt(2) times the half-width/half-height, centered at .5,.5.
+    const scale = Math.SQRT1_2;
+    return { type: "GRADIENT_RADIAL", gradientTransform: [
+      [scale, 0, (1 - scale) / 2], [0, scale, (1 - scale) / 2],
+    ], gradientStops: stops };
+  }
+
   function backgroundPaints(style, warnings, name) {
     const paints = [];
     if (style.backgroundImage && style.backgroundImage !== "none") {
       for (const layer of splitTopLevel(style.backgroundImage)) {
-        const gradient = linearGradient(layer);
+        const gradient = linearGradient(layer) || radialGradient(layer);
         if (gradient) paints.push(gradient);
         else warnings.push(`${name} has an unsupported background image: ${layer}.`);
       }
@@ -546,7 +569,44 @@
         (child[position] ?? 0) -
         ((children[index][position] ?? 0) + children[index][size]),
     );
-    if (!approximatelyUniform(gaps)) return null;
+    if (!approximatelyUniform(gaps)) {
+      // Preserve unequal CSS margins as padding on editable flow containers.
+      const padding = layoutPadding(children, rect);
+      const crossPosition = axis === "x" ? "y" : "x";
+      const crossSize = axis === "x" ? "height" : "width";
+      const start = Math.min(...children.map(child => child[crossPosition] ?? 0));
+      const end = Math.max(...children.map(child => (child[crossPosition] ?? 0) + child[crossSize]));
+      children.forEach((child, index) => {
+        const inner = { ...child };
+        const gap = Math.max(0, gaps[index] ?? 0);
+        const inset = Math.max(0, (inner[crossPosition] ?? 0) - start);
+        const wrapper = {
+          type: "FRAME", name: `Flow ${index + 1}`,
+          width: axis === "x" ? inner.width + gap : end - start,
+          height: axis === "y" ? inner.height + gap : end - start,
+          x: axis === "x" ? inner.x : start,
+          y: axis === "y" ? inner.y : start,
+          layoutMode: axis === "x" ? "HORIZONTAL" : "VERTICAL",
+          primaryAxisSizingMode: "FIXED", counterAxisSizingMode: "FIXED",
+          primaryAxisAlignItems: "MIN", counterAxisAlignItems: "MIN",
+          paddingTop: axis === "x" ? inset : 0,
+          paddingLeft: axis === "y" ? inset : 0,
+          paddingBottom: axis === "y" ? gap : Math.max(0, end - start - inset - inner.height),
+          paddingRight: axis === "x" ? gap : Math.max(0, end - start - inset - inner.width),
+          itemSpacing: 0, children: [inner]
+        };
+        inner.x = wrapper.paddingLeft;
+        inner.y = wrapper.paddingTop;
+        // Keep the reference shared by children and flowChildren.
+        for (const key of Object.keys(child)) delete child[key];
+        Object.assign(child, wrapper);
+      });
+      return {
+        layoutMode: axis === "x" ? "HORIZONTAL" : "VERTICAL",
+        primaryAxisAlignItems: "MIN", counterAxisAlignItems: "MIN",
+        layoutWrap: "NO_WRAP", ...padding, itemSpacing: 0, counterAxisSpacing: 0
+      };
+    }
     return {
       layoutMode: axis === "x" ? "HORIZONTAL" : "VERTICAL",
       primaryAxisAlignItems: "MIN",
@@ -618,11 +678,55 @@
     };
   }
 
+  // Grid rows may contain vertically centered labels plus a spanning control.
+  // Preserve the measured rows as nested Auto Layout frames instead of treating
+  // their unequal tops as a single wrapped row of equal-height cells.
+  function inferredGridRows(children, rect) {
+    const rows = [];
+    for (const child of [...children].sort((a, b) => (a.y ?? 0) - (b.y ?? 0))) {
+      const top = child.y ?? 0, bottom = top + child.height;
+      const matches = rows.filter(row => top < row.bottom - .5 && bottom > row.top + .5);
+      if (matches.length > 1) return null;
+      const row = matches[0];
+      if (row) { row.children.push(child); row.top = Math.min(row.top, top); row.bottom = Math.max(row.bottom, bottom); }
+      else rows.push({ top, bottom, children: [child] });
+    }
+    if (rows.length < 2) return null;
+    for (const row of rows) {
+      row.children.sort((a, b) => (a.x ?? 0) - (b.x ?? 0));
+      if (!orderedWithoutOverlap(row.children, "x")) return null;
+    }
+    const padding = layoutPadding(children, rect);
+    const frames = rows.map((row, index) => ({
+      type: 'FRAME', name: `Grid row ${index + 1}`, x: 0, y: row.top,
+      width: rect.width, height: (rows[index + 1]?.top ?? row.bottom) - row.top,
+      layoutMode: 'HORIZONTAL', primaryAxisSizingMode: 'FIXED', counterAxisSizingMode: 'FIXED',
+      paddingLeft: 0, paddingRight: 0, paddingTop: 0, paddingBottom: 0, itemSpacing: 0,
+      children: row.children.map((child, column) => {
+        const left = child.x ?? 0;
+        const start = column === 0 ? 0 : (row.children[column - 1].x ?? 0) + row.children[column - 1].width;
+        const top = Math.max(0, (child.y ?? 0) - row.top);
+        return { type: 'FRAME', name: `Grid cell ${column + 1}`, width: left - start + child.width, height: row.bottom - row.top,
+          layoutMode: 'VERTICAL', primaryAxisSizingMode: 'FIXED', counterAxisSizingMode: 'FIXED',
+          paddingLeft: Math.max(0, left - start), paddingRight: 0, paddingTop: top, paddingBottom: Math.max(0, row.bottom - (child.y ?? 0) - child.height), itemSpacing: 0,
+          children: [{...child, x: 0, y: 0}] };
+      })
+    }));
+    children.splice(0, children.length, ...frames);
+    return { layoutMode: 'VERTICAL', primaryAxisAlignItems: 'MIN', counterAxisAlignItems: 'MIN', layoutWrap: 'NO_WRAP',
+      paddingTop: padding.paddingTop, paddingBottom: padding.paddingBottom, paddingLeft: 0, paddingRight: 0, itemSpacing: 0, counterAxisSpacing: 0 };
+  }
+
   function inferLayout(element, style, children, rect) {
-    if (children.length < 2) return null;
+    if (children.length === 0) return null;
+    if (children.length === 1) return {
+      layoutMode: "VERTICAL", primaryAxisAlignItems: "MIN", counterAxisAlignItems: "MIN",
+      layoutWrap: "NO_WRAP", ...layoutPadding(children, rect), itemSpacing: 0, counterAxisSpacing: 0
+    };
     if (style.display === "grid" || style.display === "inline-grid") {
       return (
         inferredWrappedLayout(children, rect) ||
+        inferredGridRows(children, rect) ||
         inferredLinearLayout(children, rect, "x") ||
         inferredLinearLayout(children, rect, "y")
       );
@@ -640,6 +744,7 @@
       solidPaint(style.backgroundColor) ||
       style.backgroundImage !== "none" ||
       style.boxShadow !== "none" ||
+      (style.filter && style.filter !== "none") ||
       px(style.borderTopWidth) +
         px(style.borderRightWidth) +
         px(style.borderBottomWidth) +
@@ -648,10 +753,224 @@
     return !hasSurface && (element.textContent?.trim().length ?? 0) > 0;
   }
 
+  function hasAuthoredAutoMargin(element, property) {
+    if (element.style?.[property] === "auto") return true;
+    const cssProperty = property.replace(/[A-Z]/g, (letter) => `-${letter.toLowerCase()}`);
+    function ruleListHasAutoMargin(rules) {
+      for (const rule of rules) {
+        if (rule.selectorText && rule.style) {
+          try {
+            if (
+              element.matches(rule.selectorText) &&
+              rule.style.getPropertyValue(cssProperty).trim() === "auto"
+            ) {
+              return true;
+            }
+          } catch {
+            // Ignore selectors the browser cannot match in this context.
+          }
+        }
+        if (rule.cssRules && ruleListHasAutoMargin(rule.cssRules)) return true;
+      }
+      return false;
+    }
+    for (const sheet of document.styleSheets) {
+      try {
+        if (sheet.cssRules && ruleListHasAutoMargin(sheet.cssRules)) return true;
+      } catch {
+        // Cross-origin stylesheets are opaque; layout still exports without them.
+      }
+    }
+    return false;
+  }
+
+  function autoLayoutChildSizing(element, style) {
+    if (
+      style.position === "absolute" ||
+      style.position === "fixed" ||
+      !element.parentElement
+    ) {
+      return {};
+    }
+    const parentStyle = getComputedStyle(element.parentElement);
+    // A single row of explicitly equal fractional tracks remains responsive
+    // when translated to horizontal Auto Layout. Do not guess for mixed tracks,
+    // spanning cells, implicit tracks or multi-row grids.
+    if (parentStyle.display === "grid" || parentStyle.display === "inline-grid") {
+      const equalTracks = /^repeat\(\s*(\d+)\s*,\s*minmax\(\s*0(?:px)?\s*,\s*1fr\s*\)\s*\)$/.exec(element.parentElement.style.gridTemplateColumns);
+      const cells = [...element.parentElement.children].filter(child => {
+        const css = getComputedStyle(child);
+        return css.display !== "none" && css.position !== "absolute" && css.position !== "fixed";
+      });
+      const bounds = cells.map(child => child.getBoundingClientRect());
+      const trackWidths = parentStyle.gridTemplateColumns.split(/\s+/).map(track => /^\d+(?:\.\d+)?px$/.test(track) ? parseFloat(track) : NaN);
+      const stretchable = cells.every((child, index) => {
+        const css = getComputedStyle(child);
+        const width = child.computedStyleMap?.().get("width");
+        const alignment = css.justifySelf === "auto" ? parentStyle.justifyItems : css.justifySelf;
+        const fluidWidth = String(width) === "auto"
+          ? ["normal", "stretch"].includes(alignment)
+          : width?.unit === "percent" && width.value === 100;
+        return fluidWidth && css.maxWidth === "none" &&
+          px(css.marginLeft) === 0 && px(css.marginRight) === 0 &&
+          Math.abs(bounds[index].width - trackWidths[index]) < 0.5;
+      });
+      if (stretchable && trackWidths.length === cells.length && equalTracks && cells.length === Number(equalTracks[1]) && bounds.length &&
+          bounds.every(rect => Math.abs(rect.top - bounds[0].top) < 0.5 && Math.abs(rect.width - bounds[0].width) < 0.5)) {
+        return { layoutSizingHorizontal: "FILL" };
+      }
+      return {};
+    }
+    if (
+      parentStyle.display !== "flex" &&
+      parentStyle.display !== "inline-flex"
+    ) {
+      return {};
+    }
+    const horizontal = parentStyle.flexDirection.startsWith("row");
+    const fillsAxis =
+      Number(style.flexGrow) > 0 ||
+      (horizontal
+        ? hasAuthoredAutoMargin(element, "marginLeft") ||
+          hasAuthoredAutoMargin(element, "marginRight")
+        : hasAuthoredAutoMargin(element, "marginTop") ||
+          hasAuthoredAutoMargin(element, "marginBottom"));
+    if (!fillsAxis) return {};
+    return horizontal
+      ? { layoutSizingHorizontal: "FILL" }
+      : { layoutSizingVertical: "FILL" };
+  }
+
+  function inlineTextFrame(element, style, rect, parentRect, warnings) {
+    if (element.tagName !== "P" || solidPaint(style.backgroundColor) || style.backgroundImage !== "none") return null;
+    const descendants = [...element.querySelectorAll('*')];
+    if (!descendants.length || !descendants.every(child => {
+      const css = getComputedStyle(child);
+      return ['SPAN', 'A', 'STRONG', 'EM', 'B', 'I'].includes(child.tagName) &&
+        css.display === 'inline' && css.backgroundColor === 'rgba(0, 0, 0, 0)' &&
+        css.backgroundImage === 'none' && css.textDecorationLine === 'none' &&
+        css.boxShadow === 'none' && (!css.filter || css.filter === 'none') && ['Top', 'Right', 'Bottom', 'Left'].every(side => px(css[`border${side}Width`]) === 0);
+    })) return null;
+    const walker = document.createTreeWalker(element, NodeFilter.SHOW_TEXT);
+    const fragments = [];
+    let text;
+    while ((text = walker.nextNode())) {
+      const css = getComputedStyle(text.parentElement);
+      if (css.visibility !== 'visible') continue;
+      let opacity = 1;
+      for (let ancestor = text.parentElement; ancestor !== element; ancestor = ancestor.parentElement) {
+        opacity *= Number(getComputedStyle(ancestor).opacity);
+      }
+      if (opacity === 0) continue;
+      let start = 0;
+      let prior = null;
+      const emit = end => {
+        if (end <= start) return;
+        const range = document.createRange();
+        range.setStart(text, start); range.setEnd(text, end);
+        const box = range.getBoundingClientRect();
+        const characters = text.textContent.slice(start, end).replace(/\s+/g, ' ');
+        if (box.width > 0.1 && characters.trim()) {
+          const layer = textLayer(text, rect, css, fragments.length);
+          if (layer) fragments.push({ ...layer, opacity, characters, x: round(box.left - rect.left), y: round(box.top - rect.top), width: round(box.width), height: round(box.height) });
+        }
+      };
+      for (let index = 0; index < text.length; index++) {
+        const range = document.createRange(); range.setStart(text, index); range.setEnd(text, index + 1);
+        const box = range.getBoundingClientRect();
+        if (prior !== null && Math.abs(box.top - prior) > 1) { emit(index); start = index; }
+        prior = box.top;
+      }
+      emit(text.length);
+    }
+    if (!fragments.length) return null;
+    const rows = [];
+    for (const fragment of fragments) {
+      let row = rows.find(row => Math.abs(row.top - fragment.y) < 2);
+      if (!row) { row = { top: fragment.y, fragments: [] }; rows.push(row); }
+      row.fragments.push(fragment);
+    }
+    rows.sort((a, b) => a.top - b.top);
+    const children = rows.map((row, index) => {
+      row.fragments.sort((a, b) => a.x - b.x);
+      const bottom = Math.max(...row.fragments.map(fragment => fragment.y + fragment.height));
+      const height = (rows[index + 1]?.top ?? bottom) - row.top;
+      // Each measured run retains its own font and color. Horizontal gaps are
+      // represented by run padding so inline whitespace survives generation.
+      const runs = row.fragments.map((fragment, runIndex) => {
+        const next = row.fragments[runIndex + 1];
+        const width = (next?.x ?? fragment.x + fragment.width) - fragment.x;
+        const inner = { ...fragment, x: 0, y: Math.max(0, fragment.y - row.top) };
+        return { type: 'FRAME', name: `Run ${runIndex + 1}`, width, height,
+          layoutMode: 'HORIZONTAL', primaryAxisSizingMode: 'FIXED', counterAxisSizingMode: 'FIXED',
+          paddingTop: inner.y, paddingBottom: Math.max(0, height - inner.y - fragment.height),
+          paddingLeft: 0, paddingRight: Math.max(0, width - fragment.width), itemSpacing: 0, children: [inner] };
+      });
+      return { type: 'FRAME', name: `Line ${index + 1}`, width: rect.width, height,
+        layoutMode: 'HORIZONTAL', primaryAxisSizingMode: 'FIXED', counterAxisSizingMode: 'FIXED',
+        paddingLeft: Math.max(0, row.fragments[0].x), paddingRight: 0, paddingTop: 0, paddingBottom: 0, itemSpacing: 0, children: runs };
+    });
+    return { type: 'FRAME', name: layerName(element, element.tagName.toLowerCase()),
+      x: round(rect.left - parentRect.left), y: round(rect.top - parentRect.top), width: round(rect.width), height: round(rect.height),
+      layoutMode: 'VERTICAL', primaryAxisSizingMode: 'FIXED', counterAxisSizingMode: 'FIXED',
+      paddingTop: Math.max(0, rows[0].top), paddingBottom: 0, paddingLeft: 0, paddingRight: 0, itemSpacing: 0,
+      ...frameAppearance(style, warnings, layerName(element, 'p')), children };
+  }
+
+  function appearanceEffects(style, warnings, name) {
+    const effects = shadowEffects(style.boxShadow, warnings, name);
+    if (style.filter && style.filter !== "none") {
+      const blur = /^blur\(([\d.]+)px\)$/.exec(style.filter);
+      const dropShadow = /^drop-shadow\((.+)\)$/.exec(style.filter);
+      if (blur) effects.push({ type: "LAYER_BLUR", radius: Number(blur[1]) });
+      else if (dropShadow) effects.push(...shadowEffects(dropShadow[1], warnings, name));
+      else if (!/^grayscale\(([\d.]+)(%)?\)$/.test(style.filter)) warnings.push(`${name} has an unsupported filter: ${style.filter}.`);
+    }
+    return effects;
+  }
+
+  function frameAppearance(style, warnings, name) {
+    return {
+      ...radiusProperties(style),
+      opacity: round(Number(style.opacity || "1")),
+      clipsContent: style.overflow !== "visible",
+      fills: backgroundPaints(style, warnings, name),
+      ...borderProperties(style, warnings, name),
+      effects: appearanceEffects(style, warnings, name),
+    };
+  }
+
+  // Bake grayscale into editable paints; unsupported image/vector subtrees
+  // remain blocking rather than silently losing the filter.
+  function grayscaleScene(scene, amount, warnings) {
+    if (scene.type === "IMAGE" || scene.type === "VECTOR") {
+      warnings.push(`${scene.name} has an unsupported filter: grayscale on image or vector content.`);
+      return;
+    }
+    const transform = (color) => {
+      const gray = .2126 * color.r + .7152 * color.g + .0722 * color.b;
+      for (const channel of ["r", "g", "b"]) color[channel] = roundColor(color[channel] * (1 - amount) + gray * amount);
+    };
+    for (const paint of [...(scene.fills ?? []), ...(scene.strokes ?? [])]) {
+      if (paint.color) transform(paint.color);
+      for (const stop of paint.gradientStops ?? []) transform(stop.color);
+    }
+    for (const effect of scene.effects ?? []) if (effect.color) transform(effect.color);
+    for (const child of scene.children ?? []) grayscaleScene(child, amount, warnings);
+  }
+
   async function serialize(element, parentRect, warnings, depth = 0) {
+    const scene = await serializeElement(element, parentRect, warnings, depth);
+    const grayscale = /^grayscale\(([\d.]+)(%)?\)$/.exec(getComputedStyle(element).filter);
+    if (scene && grayscale) grayscaleScene(scene, clamp(Number(grayscale[1]) / (grayscale[2] ? 100 : 1)), warnings);
+    return scene;
+  }
+
+  async function serializeElement(element, parentRect, warnings, depth = 0) {
     const style = getComputedStyle(element);
     const rect = element.getBoundingClientRect();
     if (!visible(element, style, rect)) return null;
+    const childSizing = autoLayoutChildSizing(element, style);
 
     if (element instanceof SVGSVGElement) {
       return {
@@ -662,15 +981,21 @@
         x: round(rect.left - parentRect.left),
         y: round(rect.top - parentRect.top),
         svg: bakeCurrentColor(element.outerHTML, style),
+        ...childSizing,
       };
     }
 
     if (element instanceof HTMLImageElement) {
-      return imageLayer(element, style, rect, parentRect, warnings);
+      const layer = await imageLayer(element, style, rect, parentRect, warnings);
+      return layer ? { ...layer, ...childSizing } : null;
     }
 
+    const inlineText = inlineTextFrame(element, style, rect, parentRect, warnings);
+    if (inlineText) return { ...inlineText, ...childSizing };
+
     if (isTextOnly(element)) {
-      return textLayer(element.firstChild, parentRect, style, 0);
+      const layer = textLayer(element.firstChild, parentRect, style, 0);
+      return layer ? { ...layer, ...childSizing } : null;
     }
 
     const display = style.display;
@@ -726,6 +1051,10 @@
     const inferred = flex
       ? null
       : inferLayout(element, style, flowChildren, rect);
+    if (inferred && flowChildren.some(child => child.name?.startsWith("Grid row "))) {
+      const absolute = children.filter(child => child.layoutPositioning === "ABSOLUTE");
+      children.splice(0, children.length, ...flowChildren, ...absolute);
+    }
     if (!flex && children.length > 1 && !inferred) {
       warnings.push(
         `${layerName(element, element.tagName.toLowerCase())} has ${children.length} children and cannot become Auto Layout (${display}).`,
@@ -744,6 +1073,7 @@
       layoutMode: inferred?.layoutMode ?? layoutMode,
       primaryAxisSizingMode: inline ? "AUTO" : "FIXED",
       counterAxisSizingMode: inline ? "AUTO" : "FIXED",
+      ...childSizing,
       ...(flex ? {
         primaryAxisAlignItems: alignment(style.justifyContent, true),
         counterAxisAlignItems: alignment(style.alignItems),
@@ -755,12 +1085,7 @@
         itemSpacing: px(style.columnGap || style.gap),
         counterAxisSpacing: px(style.rowGap || style.gap),
       } : inferred ?? {}),
-      ...radiusProperties(style),
-      opacity: round(Number(style.opacity || "1")),
-      clipsContent: style.overflow !== "visible",
-      fills: backgroundPaints(style, warnings, name),
-      ...borderProperties(style, warnings, name),
-      effects: shadowEffects(style.boxShadow, warnings, name),
+      ...frameAppearance(style, warnings, name),
       children,
     };
   }

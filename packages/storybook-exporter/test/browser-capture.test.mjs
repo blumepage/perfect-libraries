@@ -211,6 +211,66 @@ test("preserves top-right overlays inside Auto Layout without adding them to flo
   assert.deepEqual(result.warnings, []);
 });
 
+test("preserves CSS auto margins as Figma Auto Layout fill sizing", async () => {
+  const result = await capture(`
+    <main data-figma-source-node="Pinned status" data-figma-source-root
+      style="box-sizing:border-box;display:flex;align-items:center;width:174px;height:60px;padding:12px">
+      <span style="display:inline-flex;width:30px;height:30px;background:#9172f8"></span>
+      <div style="display:flex;justify-content:flex-end;margin-left:auto;width:50px;height:25px">
+        <span style="width:22px;height:22px;background:#111"></span>
+      </div>
+    </main>
+  `, "Pinned status");
+
+  assert.equal(result.scene.children[1].layoutSizingHorizontal, "FILL");
+  assert.equal(result.scene.children[1].primaryAxisAlignItems, "MAX");
+  assert.deepEqual(result.warnings, []);
+});
+
+test("preserves CSS auto margins for text, vector, and image children", async () => {
+  const svg = encodeURIComponent(
+    '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 8 8"><path d="M0 0h8v8H0z"/></svg>',
+  );
+  const png =
+    "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII=";
+  const result = await capture(`
+    <main data-figma-source-node="Trailing children" data-figma-source-root
+      style="display:flex;flex-direction:column;width:160px;gap:4px">
+      <div style="display:flex;width:160px">
+        <span style="margin-left:auto">Trailing text</span>
+      </div>
+      <div style="display:flex;width:160px">
+        <svg style="margin-left:auto;width:8px;height:8px" viewBox="0 0 8 8">
+          <path d="M0 0h8v8H0z"/>
+        </svg>
+      </div>
+      <div style="display:flex;width:160px">
+        <img alt="Trailing image" width="8" height="8"
+          style="margin-left:auto"
+          src="data:image/png;base64,${png}">
+      </div>
+      <div style="display:flex;width:160px">
+        <img alt="Trailing vector image" width="8" height="8"
+          style="margin-left:auto"
+          src="data:image/svg+xml,${svg}">
+      </div>
+    </main>
+  `, "Trailing children");
+
+  const [text, vector, image, vectorImage] = result.scene.children.map(
+    (row) => row.children[0],
+  );
+  assert.equal(text.type, "TEXT");
+  assert.equal(text.layoutSizingHorizontal, "FILL");
+  assert.equal(vector.type, "VECTOR");
+  assert.equal(vector.layoutSizingHorizontal, "FILL");
+  assert.equal(image.type, "IMAGE");
+  assert.equal(image.layoutSizingHorizontal, "FILL");
+  assert.equal(vectorImage.type, "VECTOR");
+  assert.equal(vectorImage.layoutSizingHorizontal, "FILL");
+  assert.deepEqual(result.warnings, []);
+});
+
 test("captures exactly one visible document-level portal source", async () => {
   const result = await capture(`
     <main data-figma-source-node="Dialog / Open"
@@ -267,4 +327,145 @@ test("rejects missing and ambiguous visible portal selectors", async () => {
     `, "Ambiguous"),
     /must match exactly one visible element; found 2/,
   );
+});
+
+
+test("preserves unequal block gaps with editable flow wrappers", async () => {
+  const result = await capture(`<main data-figma-source-node="Unequal" style="width:200px;padding:10px">
+    <div style="height:20px;background:red"></div>
+    <div style="height:30px;margin-top:4px;background:blue"></div>
+    <div style="height:10px;margin-top:12px;background:green"></div>
+  </main>`, "Unequal");
+  assert.deepEqual(result.warnings, []);
+  assert.equal(result.scene.layoutMode, "VERTICAL");
+  assert.equal(result.scene.itemSpacing, 0);
+  assert.deepEqual(result.scene.children.map(child => child.height), [24, 42, 10]);
+  assert.deepEqual(result.scene.children.map(child => child.paddingBottom), [4, 12, 0]);
+  assert.deepEqual(result.scene.children.map(child => child.children[0].height), [20, 30, 10]);
+});
+
+
+test("captures wrapped bold paragraphs as editable lines and preserves text", async () => {
+  const result = await capture(`<p data-figma-source-node="Rich" style="width:120px;font:14px/20px Arial">Before <strong>bold words</strong> and text wrapping over several lines.</p>`, "Rich");
+  assert.deepEqual(result.warnings, []);
+  assert.equal(result.scene.layoutMode, "VERTICAL");
+  const runs = result.scene.children.flatMap(line => line.children.map(run => run.children[0]));
+  assert.equal(runs.map(run => run.characters).join('').replace(/\s+/g, ' ').trim(), 'Before bold words and text wrapping over several lines.');
+  assert.ok(runs.some(run => run.fontWeight === 700));
+  assert.ok(result.scene.children.length > 1);
+  assert.ok(result.scene.children.every(line => line.children.every(run => run.width > 0 && run.height > 0)));
+});
+
+test("preserves rich paragraph appearance and omits hidden text while retaining its space", async () => {
+  const result = await capture(`<p data-figma-source-node="Rich" style="width:500px;font:14px/20px Arial;opacity:.5;border:2px solid red;border-radius:4px;overflow:hidden;box-shadow:0 1px 2px black">Before <strong>bold</strong><span style="visibility:hidden">secret</span><span style="opacity:0">invisible</span><span style="opacity:.3">dim</span> after</p>`, "Rich");
+  assert.deepEqual(result.warnings, []);
+  assert.equal(result.scene.opacity, .5);
+  assert.equal(result.scene.strokes.length, 1);
+  assert.equal(result.scene.strokeWeight, 2);
+  assert.equal(result.scene.cornerRadius, 4);
+  assert.equal(result.scene.clipsContent, true);
+  assert.equal(result.scene.effects.length, 1);
+  const runs = result.scene.children.flatMap(line => line.children.map(run => run.children[0]));
+  assert.doesNotMatch(runs.map(run => run.characters).join(''), /secret|invisible/);
+  assert.equal(runs.find(run => run.characters === 'dim').opacity, .3);
+  assert.ok(result.scene.children[0].children.find(run => run.children[0].characters === 'bold').paddingRight > 50);
+});
+
+test("captures a centered farthest-corner radial ellipse as a native gradient", async () => {
+  const result = await capture(`<div data-figma-source-node="Radial" style="width:200px;height:100px;background:radial-gradient(rgba(12,18,14,.5) 0%,rgba(12,18,14,.28) 52%,rgba(12,18,14,0) 78%)"></div>`, "Radial");
+  assert.deepEqual(result.warnings, []);
+  const paint = result.scene.fills[0];
+  assert.equal(paint.type, 'GRADIENT_RADIAL');
+  assert.deepEqual(paint.gradientStops.map(stop => stop.position), [0, .52, .78]);
+  assert.ok(Math.abs(paint.gradientStops[0].color.a - .5) < .005);
+  assert.equal(paint.gradientTransform[0][0], Math.SQRT1_2);
+});
+
+test("infers layout for one flow child plus an absolute badge", async () => {
+  const result = await capture(`<li data-figma-source-node="List" style="position:relative;width:200px;padding-left:24px"><span style="position:absolute;left:0;top:0">1</span><p style="margin:0">Content</p></li>`, "List");
+  assert.deepEqual(result.warnings, []);
+  assert.equal(result.scene.layoutMode, 'VERTICAL');
+  assert.equal(result.scene.children[0].layoutPositioning, 'ABSOLUTE');
+  assert.equal(result.scene.paddingLeft, 24);
+});
+
+
+test("preserves CSS blur as an editable layer effect", async () => {
+  const result = await capture('<main data-figma-source-node="Blur"><span style="filter:blur(5px);display:inline-block">person@example.com</span></main>', 'Blur');
+  const nodes=[]; const visit=node=>{nodes.push(node); for(const child of node.children??[]) visit(child)}; visit(result.scene);
+  assert.ok(nodes.some(node=>node.effects?.some(effect=>effect.type==='LAYER_BLUR' && effect.radius===5)));
+  assert.ok(nodes.some(node=>node.type==='TEXT' && node.characters==='person@example.com'));
+  assert.deepEqual(result.warnings, []);
+});
+
+
+test("captures centered grid labels above a spanning control", async () => {
+  const result = await capture('<main data-figma-source-node="Grid"><div style="display:grid;grid-template-columns:1fr auto;align-items:center;width:300px;gap:8px;padding:12px"><div style="height:40px">Label</div><span>50</span><div style="grid-column:span 2;height:24px;background:#999"></div></div></main>', 'Grid');
+  assert.ok(!result.warnings.some(w => w.includes('cannot become Auto Layout')));
+  const grid = result.scene.children[0];
+  assert.equal(grid.layoutMode, 'VERTICAL');
+  assert.equal(grid.children.length, 2);
+  assert.equal(grid.children[0].layoutMode, 'HORIZONTAL');
+  assert.equal(grid.children[0].children.length, 2);
+  assert.ok(grid.children[0].children[1].paddingTop > 0);
+});
+
+
+test("does not flatten away blur inside rich inline text", async () => {
+  const result = await capture('<p data-figma-source-node="Rich">Email <span style="filter:blur(5px)">person@example.com</span></p>', 'Rich');
+  const nodes=[]; const visit=node=>{nodes.push(node); for(const child of node.children??[]) visit(child)}; visit(result.scene);
+  assert.ok(nodes.some(node=>node.effects?.some(effect=>effect.type==='LAYER_BLUR' && effect.radius===5)));
+});
+
+
+test("preserves a single CSS drop shadow filter", async () => {
+  const result = await capture('<div data-figma-source-node="Shadow" style="width:40px;height:40px;filter:drop-shadow(0px 4px 7px rgba(100,80,200,.2))"><span>Icon</span></div>', 'Shadow');
+  assert.ok(result.scene.effects.some(effect=>effect.type==='DROP_SHADOW' && effect.offset.y===4 && effect.radius===7));
+  assert.deepEqual(result.warnings, []);
+});
+
+
+test("bakes grayscale through editable descendant paints and preserves alpha", async () => {
+  const result = await capture('<div data-figma-source-node="Gray" style="width:80px;filter:grayscale(1);background:red;opacity:.55"><span style="color:blue">Text</span></div>', 'Gray');
+  assert.deepEqual(result.warnings, []);
+  assert.equal(result.scene.opacity, .55);
+  assert.deepEqual(result.scene.fills[0].color, {r:.2126,g:.2126,b:.2126});
+  const walk = node => [node, ...(node.children ?? []).flatMap(walk)];
+  const text = walk(result.scene).find(node => node.type === 'TEXT');
+  assert.deepEqual(text.fills[0].color, {r:.0722,g:.0722,b:.0722});
+});
+
+test("keeps grayscale on vector content blocking", async () => {
+  const result = await capture('<div data-figma-source-node="Gray" style="filter:grayscale(1)"><svg width="20" height="20"><rect width="20" height="20" fill="red"/></svg></div>', 'Gray');
+  assert.ok(result.warnings.some(warning => warning.includes('unsupported filter: grayscale')));
+});
+
+
+test("keeps equal fractional single-row grid cells responsive inside a growing control", async () => {
+  const result = await capture(`<div data-figma-source-node="Segments" data-figma-source-root="child"><div style="display:flex;width:320px"><div data-figma-layer="Segments" style="display:grid;flex:1;grid-template-columns:repeat(2,minmax(0,1fr));gap:2px;padding:2px"><button>Automatic</button><button>Manual</button></div></div></div>`, "Segments");
+  const grid = result.scene.children[0];
+  assert.equal(grid.layoutSizingHorizontal, "FILL");
+  assert.equal(grid.layoutMode, "HORIZONTAL");
+  assert.ok(grid.children.every(child => child.layoutSizingHorizontal === "FILL"));
+});
+
+test("does not infer fill sizing for fixed or multi-row grid cells", async () => {
+  for (const template of ["100px 100px", "repeat(2,minmax(0,1fr))"]) {
+    const result = await capture(`<div data-figma-source-node="Grid" data-figma-source-root="child"><div style="display:grid;width:320px;grid-template-columns:${template};gap:2px"><button>A</button><button>B</button><button>C</button><button>D</button></div></div>`, "Grid");
+    const children = result.scene.children.flatMap(child => child.name.startsWith("Grid row ") ? child.children : [child]);
+    assert.ok(children.every(child => child.layoutSizingHorizontal !== "FILL"));
+  }
+});
+
+
+test("does not stretch fixed or capped single-row fractional grid cells", async () => {
+  for (const style of ["width:50px", "width:159px", "max-width:200px", "justify-self:start"]) {
+    const result = await capture(`<div data-figma-source-node="Grid" data-figma-source-root="child"><div style="display:grid;width:320px;grid-template-columns:repeat(2,minmax(0,1fr));gap:2px"><button style="${style}">A</button><button style="${style}">B</button></div></div>`, "Grid");
+    assert.ok(result.scene.children.every(child => child.layoutSizingHorizontal !== "FILL"), style);
+  }
+});
+
+test("stretches full-width single-row fractional grid cells", async () => {
+  const result = await capture(`<div data-figma-source-node="Grid" data-figma-source-root="child"><div style="display:grid;width:320px;grid-template-columns:repeat(2,minmax(0,1fr));gap:2px"><button style="width:100%">A</button><button style="width:100%">B</button></div></div>`, "Grid");
+  assert.ok(result.scene.children.every(child => child.layoutSizingHorizontal === "FILL"));
 });

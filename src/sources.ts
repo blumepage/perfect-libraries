@@ -20,7 +20,7 @@ export interface SourceGradientStop {
 }
 
 export interface SourceGradientPaint {
-  type: "GRADIENT_LINEAR";
+  type: "GRADIENT_LINEAR" | "GRADIENT_RADIAL";
   gradientTransform: [[number, number, number], [number, number, number]];
   gradientStops: SourceGradientStop[];
   opacity?: number;
@@ -28,7 +28,9 @@ export interface SourceGradientPaint {
 
 export type SourcePaint = SourceSolidPaint | SourceGradientPaint;
 
-export interface SourceEffect {
+export type SourceEffect = SourceShadowEffect | { type: "LAYER_BLUR"; radius: number };
+
+export interface SourceShadowEffect {
   type: "DROP_SHADOW" | "INNER_SHADOW";
   color: SourceColor & { a: number };
   offset: { x: number; y: number };
@@ -42,6 +44,8 @@ export interface SourceBaseNode {
   height: number;
   x?: number;
   y?: number;
+  layoutSizingHorizontal?: "FILL";
+  layoutSizingVertical?: "FILL";
   layoutPositioning?: "ABSOLUTE";
   constraints?: {
     horizontal: "MIN" | "CENTER" | "MAX" | "STRETCH" | "SCALE";
@@ -212,7 +216,7 @@ function validatePaint(value: unknown, path: string, errors: string[]): void {
   }
   if (value.type === "SOLID") {
     validateColor(value.color, `${path}.color`, errors);
-  } else if (value.type === "GRADIENT_LINEAR") {
+  } else if ((value.type === "GRADIENT_LINEAR" || value.type === "GRADIENT_RADIAL")) {
     if (
       !Array.isArray(value.gradientTransform) ||
       value.gradientTransform.length !== 2 ||
@@ -258,6 +262,10 @@ function validatePaint(value: unknown, path: string, errors: string[]): void {
 function validateEffect(value: unknown, path: string, errors: string[]): void {
   if (!isRecord(value)) {
     errors.push(`${path} must be an effect object.`);
+    return;
+  }
+  if (value.type === "LAYER_BLUR") {
+    if (!finiteNumber(value.radius) || value.radius < 0) errors.push(`${path}.radius must be a non-negative number.`);
     return;
   }
   if (!["DROP_SHADOW", "INNER_SHADOW"].includes(String(value.type))) {
@@ -309,6 +317,14 @@ function validateSceneNode(
     value.layoutPositioning !== "ABSOLUTE"
   ) {
     errors.push(`${path}.layoutPositioning is invalid.`);
+  }
+  for (const field of [
+    "layoutSizingHorizontal",
+    "layoutSizingVertical",
+  ] as const) {
+    if (value[field] !== undefined && value[field] !== "FILL") {
+      errors.push(`${path}.${field} is invalid.`);
+    }
   }
   if (value.constraints !== undefined) {
     if (!isRecord(value.constraints)) {

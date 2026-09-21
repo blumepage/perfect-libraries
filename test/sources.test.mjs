@@ -67,6 +67,21 @@ test("validates absolute child positioning and rejects unsupported constraints",
   );
 });
 
+test("validates Auto Layout fill sizing exported from CSS auto margins", () => {
+  const input = sources();
+  input.variants[0].scene.children[0].layoutSizingHorizontal = "FILL";
+  assert.equal(validateSources(input).ok, true);
+
+  input.variants[0].scene.children[0].layoutSizingHorizontal = "STRETCH";
+  const invalid = validateSources(input);
+  assert.equal(invalid.ok, false);
+  assert.ok(
+    invalid.errors.some((error) =>
+      error.includes("layoutSizingHorizontal is invalid"),
+    ),
+  );
+});
+
 test("rejects mismatched source names and invalid dimensions", () => {
   const input = sources();
   input.variants[0].scene.name = "Wrong name";
@@ -188,4 +203,12 @@ test("rejects malformed or unsupported raster image sources", () => {
   assert.ok(result.errors.some((error) => error.includes(".data")));
   assert.ok(result.errors.some((error) => error.includes(".mimeType")));
   assert.ok(result.errors.some((error) => error.includes(".scaleMode")));
+});
+
+test('accepts native layer blur and rejects a negative radius', () => {
+  const bundle = sources();
+  bundle.variants[0].scene.effects = [{ type: 'LAYER_BLUR', radius: 5 }];
+  assert.deepEqual(validateSources(bundle).errors, []);
+  bundle.variants[0].scene.effects[0].radius = -1;
+  assert.ok(validateSources(bundle).errors.some(error => error.includes('radius')));
 });

@@ -16,6 +16,11 @@ export interface DocumentationCombination {
   properties: Array<{ name: string; value: string }>;
 }
 
+export interface DocumentationCombinationGroup {
+  axis: string;
+  combinations: DocumentationCombination[];
+}
+
 export interface DocumentationComponent {
   id: string;
   name: string;
@@ -62,9 +67,28 @@ function fallbackGroupId(value: string): string {
   return `${slug(value) || "components"}-${stableHash(value)}`;
 }
 
+const DESIGN_SYSTEM_GROUP_ORDER = [
+  "Foundations",
+  "Atoms",
+  "Molecules",
+  "Organisms",
+  "Navigation",
+  "Layouts",
+  "Views",
+] as const;
+
 function groupOrder(left: string, right: string): number {
-  if (left === "Foundations") return -1;
-  if (right === "Foundations") return 1;
+  const leftIndex = DESIGN_SYSTEM_GROUP_ORDER.indexOf(
+    left as (typeof DESIGN_SYSTEM_GROUP_ORDER)[number],
+  );
+  const rightIndex = DESIGN_SYSTEM_GROUP_ORDER.indexOf(
+    right as (typeof DESIGN_SYSTEM_GROUP_ORDER)[number],
+  );
+  if (leftIndex !== -1 || rightIndex !== -1) {
+    if (leftIndex === -1) return 1;
+    if (rightIndex === -1) return -1;
+    return leftIndex - rightIndex;
+  }
   return left.localeCompare(right);
 }
 
@@ -121,6 +145,66 @@ function componentGuidance(
     );
   }
   return guidance;
+}
+
+function combinationProperty(
+  combination: DocumentationCombination,
+  name: string,
+): string {
+  return combination.properties.find((property) => property.name === name)?.value ?? "";
+}
+
+export function createRepresentativeCombinationGroups(
+  component: Pick<DocumentationComponent, "axes" | "combinations">,
+): DocumentationCombinationGroup[] {
+  if (component.axes.length === 0) {
+    return component.combinations.length === 0
+      ? []
+      : [{ axis: "Examples", combinations: component.combinations }];
+  }
+
+  const groups: DocumentationCombinationGroup[] = [];
+  for (const axis of component.axes) {
+    const otherAxes = component.axes.filter((candidate) => candidate.name !== axis.name);
+    const candidates = new Map<
+      string,
+      { firstIndex: number; combinations: DocumentationCombination[] }
+    >();
+    for (const [index, combination] of component.combinations.entries()) {
+      const signature = otherAxes
+        .map((otherAxis) => `${otherAxis.name}\u0000${combinationProperty(combination, otherAxis.name)}`)
+        .join("\u0001");
+      const candidate = candidates.get(signature) ?? {
+        firstIndex: index,
+        combinations: [],
+      };
+      candidate.combinations.push(combination);
+      candidates.set(signature, candidate);
+    }
+    const best = [...candidates.values()].sort((left, right) => {
+      const leftValues = new Set(
+        left.combinations.map((combination) => combinationProperty(combination, axis.name)),
+      ).size;
+      const rightValues = new Set(
+        right.combinations.map((combination) => combinationProperty(combination, axis.name)),
+      ).size;
+      return rightValues - leftValues || left.firstIndex - right.firstIndex;
+    })[0];
+    if (!best) continue;
+    const combinations = axis.values
+      .map((value) =>
+        best.combinations.find(
+          (combination) => combinationProperty(combination, axis.name) === value,
+        ),
+      )
+      .filter((combination): combination is DocumentationCombination => Boolean(combination));
+    if (combinations.length > 1 || component.axes.length === 1) {
+      groups.push({ axis: axis.name, combinations });
+    }
+  }
+  return groups.length > 0
+    ? groups
+    : [{ axis: "Examples", combinations: component.combinations }];
 }
 
 export function createDocumentationPlan(

@@ -256,6 +256,22 @@ place in Auto Layout.
 
 ### Component properties
 
+Native slots use an explicit non-root frame in the captured Storybook source:
+
+```json
+"slots": [{ "name": "Items", "layer": "Items" }]
+```
+
+The final layer-path segment must match the slot name. Declare reusable child
+components with `nestedInstances` inside that frame. Use slots for editable
+collections or content regions; use variants for fixed states and instance swaps
+for individual icons. Every variant must contain the same slot paths. Overlapping
+slots and slots inside a replaced nested instance are rejected.
+
+Regeneration preserves existing slot nodes and property keys so designer-added
+instance content survives. Removing or renaming a slot requires an explicit
+migration; the importer rejects that change instead of deleting content.
+
 Supported property types are `TEXT`, `BOOLEAN`, and `INSTANCE_SWAP`. Properties
 are wired to the named child layer in every variant. Variant axes come from the
 variant's `properties` object.

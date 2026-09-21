@@ -288,6 +288,13 @@ export function validateSourceContract(
     const source = providedVariants.get(id);
     if (!source || source.sourceNode !== variant.sourceNode) continue;
     const context = { component, variantId: id, source };
+    for (const slot of component.slots ?? []) {
+      if ((variant.nestedInstances ?? []).some(nested => slot.layer === nested.layer || slot.layer.startsWith(`${nested.layer}/`))) {
+        errors.push(`${component.name} / ${context.variantId}: slot "${slot.name}" cannot be inside a replaced nested instance.`);
+      }
+      const node = findSourceLayer(context.source.scene, slot.layer);
+      if (!node || node.type !== "FRAME" || slot.layer === "$") errors.push(`${component.name} / ${context.variantId}: slot "${slot.name}" requires a non-root FRAME layer "${slot.layer}".`);
+    }
     for (const property of component.properties ?? []) {
       validateProperty(context, property, errors);
     }

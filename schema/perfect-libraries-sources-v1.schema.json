@@ -56,7 +56,7 @@
           "additionalProperties": false,
           "required": ["type", "gradientTransform", "gradientStops"],
           "properties": {
-            "type": { "const": "GRADIENT_LINEAR" },
+            "type": { "enum": ["GRADIENT_LINEAR", "GRADIENT_RADIAL"] },
             "opacity": { "type": "number", "minimum": 0, "maximum": 1 },
             "gradientTransform": { "$ref": "#/$defs/transform" },
             "gradientStops": {
@@ -105,24 +105,69 @@
       }
     },
     "effect": {
-      "type": "object",
-      "additionalProperties": false,
-      "required": ["type", "color", "offset", "radius"],
-      "properties": {
-        "type": { "enum": ["DROP_SHADOW", "INNER_SHADOW"] },
-        "color": { "$ref": "#/$defs/rgba" },
-        "offset": {
+      "oneOf": [
+        {
           "type": "object",
           "additionalProperties": false,
-          "required": ["x", "y"],
+          "required": [
+            "type",
+            "color",
+            "offset",
+            "radius"
+          ],
           "properties": {
-            "x": { "type": "number" },
-            "y": { "type": "number" }
+            "type": {
+              "enum": [
+                "DROP_SHADOW",
+                "INNER_SHADOW"
+              ]
+            },
+            "color": {
+              "$ref": "#/$defs/rgba"
+            },
+            "offset": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": [
+                "x",
+                "y"
+              ],
+              "properties": {
+                "x": {
+                  "type": "number"
+                },
+                "y": {
+                  "type": "number"
+                }
+              }
+            },
+            "radius": {
+              "type": "number",
+              "minimum": 0
+            },
+            "spread": {
+              "type": "number"
+            }
           }
         },
-        "radius": { "type": "number", "minimum": 0 },
-        "spread": { "type": "number" }
-      }
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "type",
+            "radius"
+          ],
+          "properties": {
+            "type": {
+              "const": "LAYER_BLUR"
+            },
+            "radius": {
+              "type": "number",
+              "minimum": 0
+            }
+          }
+        }
+      ]
     },
     "base": {
       "type": "object",
@@ -134,6 +179,8 @@
         "height": { "type": "number", "exclusiveMinimum": 0 },
         "x": { "type": "number" },
         "y": { "type": "number" },
+        "layoutSizingHorizontal": { "const": "FILL" },
+        "layoutSizingVertical": { "const": "FILL" },
         "layoutPositioning": { "const": "ABSOLUTE" },
         "constraints": { "$ref": "#/$defs/constraints" },
         "opacity": { "type": "number", "minimum": 0, "maximum": 1 }

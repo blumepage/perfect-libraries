@@ -110,6 +110,8 @@ export interface SourceConstraintsLike {
 export interface SourcePlacementLike {
   x?: number;
   y?: number;
+  layoutSizingHorizontal?: "FILL";
+  layoutSizingVertical?: "FILL";
   layoutPositioning?: "ABSOLUTE";
   constraints?: SourceConstraintsLike;
 }
@@ -118,6 +120,8 @@ export interface PositionedSceneNodeLike {
   x: number;
   y: number;
   layoutPositioning?: "AUTO" | "ABSOLUTE";
+  layoutSizingHorizontal?: string;
+  layoutSizingVertical?: string;
   constraints?: SourceConstraintsLike;
 }
 

@@ -138,6 +138,11 @@ export interface ComponentDocumentationDefinition {
   controls?: StorybookControlDefinition[];
 }
 
+export interface SlotDefinition {
+  name: string;
+  layer: string;
+}
+
 export interface ComponentDefinition {
   id: string;
   name: string;
@@ -146,7 +151,19 @@ export interface ComponentDefinition {
   documentation?: ComponentDocumentationDefinition;
   dependencies?: string[];
   properties?: ComponentPropertyDefinition[];
+  slots?: SlotDefinition[];
   variants: ComponentVariantDefinition[];
+}
+
+export interface TextStyleDefinition {
+  id: string;
+  name: string;
+  fontFamily: string;
+  fontStyle: string;
+  fontSize: number;
+  lineHeight: number;
+  fontSizeToken?: string;
+  lineHeightToken?: string;
 }
 
 export interface PerfectLibrariesManifest {
@@ -157,6 +174,7 @@ export interface PerfectLibrariesManifest {
     name: string;
     release: string;
   };
+  textStyles?: TextStyleDefinition[];
   tokenCollections: TokenCollectionDefinition[];
   components: ComponentDefinition[];
 }
@@ -385,6 +403,27 @@ export function validateManifest(input: unknown): ValidationResult {
     });
   });
 
+  if (manifest.textStyles !== undefined && !Array.isArray(manifest.textStyles)) {
+    errors.push("textStyles must be an array");
+  } else {
+    const ids = new Set<string>();
+    const names = new Set<string>();
+    for (const style of manifest.textStyles ?? []) {
+      if (!isRecord(style)) { errors.push("textStyles entries must be objects"); continue; }
+      for (const field of ["id", "name", "fontFamily", "fontStyle"] as const) {
+        if (!nonEmptyString(style[field])) errors.push(`textStyles.${field} must be a non-empty string`);
+      }
+      if (ids.has(style.id) || names.has(style.name)) errors.push("textStyles must have unique ids and names");
+      ids.add(style.id); names.add(style.name);
+      for (const field of ["fontSize", "lineHeight"] as const) {
+        if (!Number.isFinite(style[field]) || style[field] <= 0) errors.push(`textStyles.${field} must be positive`);
+      }
+      for (const field of ["fontSizeToken", "lineHeightToken"] as const) {
+        if (style[field] !== undefined && tokenTypes.get(style[field]) !== "FLOAT") errors.push(`textStyles.${field} must reference a FLOAT token`);
+      }
+    }
+  }
+
   for (const collection of manifest.tokenCollections) {
     for (const token of collection.tokens) {
       for (const [mode, value] of Object.entries(token.values)) {
@@ -536,6 +575,19 @@ export function validateManifest(input: unknown): ValidationResult {
         errors.push(pathLabel(`${propertyPath}.layer`, "must be a non-empty string"));
       }
     }
+    const slotNames = new Set<string>();
+    const slotPaths: string[] = [];
+    if (component.slots !== undefined && !Array.isArray(component.slots)) {
+      errors.push(pathLabel(`${path}.slots`, "must be an array"));
+    } else for (const slot of component.slots ?? []) {
+      if (!slot || !nonEmptyString(slot.name) || !nonEmptyString(slot.layer) || slot.layer === "$" || slot.layer.split("/").at(-1) !== slot.name) {
+        errors.push(pathLabel(`${path}.slots`, "requires a named non-root layer whose final path segment equals the slot name"));
+        continue;
+      }
+      if (slotNames.has(slot.name) || propertyNames.has(slot.name) || component.variants.some(variant => isRecord(variant.properties) && slot.name in variant.properties)) errors.push(pathLabel(`${path}.slots`, `duplicate property "${slot.name}"`));
+      if (slotPaths.some(p => p === slot.layer || p.startsWith(`${slot.layer}/`) || slot.layer.startsWith(`${p}/`))) errors.push(pathLabel(`${path}.slots`, "slot layers must not overlap"));
+      slotNames.add(slot.name); slotPaths.push(slot.layer);
+    }
     if (component.variants.length > 30) {
       warnings.push(
         pathLabel(
@@ -545,7 +597,15 @@ export function validateManifest(input: unknown): ValidationResult {
       );
     }
 
+    const variantAxes = new Set(component.variants.flatMap(variant =>
+      isRecord(variant.properties) ? Object.keys(variant.properties) : []));
     component.variants.forEach((variant, variantIndex) => {
+      for (const axis of variantAxes) {
+        if (!isRecord(variant.properties) || !nonEmptyString(variant.properties[axis])) {
+          errors.push(pathLabel(`${path}.variants[${variantIndex}].properties`, `must define variant axis "${axis}" on every variant`));
+        }
+      }
+
       const variantPath = `${path}.variants[${variantIndex}]`;
       if (!nonEmptyString(variant.id)) {
         errors.push(pathLabel(`${variantPath}.id`, "must be a non-empty string"));
