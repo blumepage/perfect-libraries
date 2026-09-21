@@ -896,7 +896,7 @@
       const dropShadow = /^drop-shadow\((.+)\)$/.exec(style.filter);
       if (blur) effects.push({ type: "LAYER_BLUR", radius: Number(blur[1]) });
       else if (dropShadow) effects.push(...shadowEffects(dropShadow[1], warnings, name));
-      else warnings.push(`${name} has an unsupported filter: ${style.filter}.`);
+      else if (!/^grayscale\(([\d.]+)(%)?\)$/.test(style.filter)) warnings.push(`${name} has an unsupported filter: ${style.filter}.`);
     }
     return effects;
   }
@@ -912,7 +912,33 @@
     };
   }
 
+  // Bake grayscale into editable paints; unsupported image/vector subtrees
+  // remain blocking rather than silently losing the filter.
+  function grayscaleScene(scene, amount, warnings) {
+    if (scene.type === "IMAGE" || scene.type === "VECTOR") {
+      warnings.push(`${scene.name} has an unsupported filter: grayscale on image or vector content.`);
+      return;
+    }
+    const transform = (color) => {
+      const gray = .2126 * color.r + .7152 * color.g + .0722 * color.b;
+      for (const channel of ["r", "g", "b"]) color[channel] = roundColor(color[channel] * (1 - amount) + gray * amount);
+    };
+    for (const paint of [...(scene.fills ?? []), ...(scene.strokes ?? [])]) {
+      if (paint.color) transform(paint.color);
+      for (const stop of paint.gradientStops ?? []) transform(stop.color);
+    }
+    for (const effect of scene.effects ?? []) if (effect.color) transform(effect.color);
+    for (const child of scene.children ?? []) grayscaleScene(child, amount, warnings);
+  }
+
   async function serialize(element, parentRect, warnings, depth = 0) {
+    const scene = await serializeElement(element, parentRect, warnings, depth);
+    const grayscale = /^grayscale\(([\d.]+)(%)?\)$/.exec(getComputedStyle(element).filter);
+    if (scene && grayscale) grayscaleScene(scene, clamp(Number(grayscale[1]) / (grayscale[2] ? 100 : 1)), warnings);
+    return scene;
+  }
+
+  async function serializeElement(element, parentRect, warnings, depth = 0) {
     const style = getComputedStyle(element);
     const rect = element.getBoundingClientRect();
     if (!visible(element, style, rect)) return null;

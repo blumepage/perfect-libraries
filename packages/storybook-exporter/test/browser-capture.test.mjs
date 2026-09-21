@@ -423,3 +423,19 @@ test("preserves a single CSS drop shadow filter", async () => {
   assert.ok(result.scene.effects.some(effect=>effect.type==='DROP_SHADOW' && effect.offset.y===4 && effect.radius===7));
   assert.deepEqual(result.warnings, []);
 });
+
+
+test("bakes grayscale through editable descendant paints and preserves alpha", async () => {
+  const result = await capture('<div data-figma-source-node="Gray" style="width:80px;filter:grayscale(1);background:red;opacity:.55"><span style="color:blue">Text</span></div>', 'Gray');
+  assert.deepEqual(result.warnings, []);
+  assert.equal(result.scene.opacity, .55);
+  assert.deepEqual(result.scene.fills[0].color, {r:.2126,g:.2126,b:.2126});
+  const walk = node => [node, ...(node.children ?? []).flatMap(walk)];
+  const text = walk(result.scene).find(node => node.type === 'TEXT');
+  assert.deepEqual(text.fills[0].color, {r:.0722,g:.0722,b:.0722});
+});
+
+test("keeps grayscale on vector content blocking", async () => {
+  const result = await capture('<div data-figma-source-node="Gray" style="filter:grayscale(1)"><svg width="20" height="20"><rect width="20" height="20" fill="red"/></svg></div>', 'Gray');
+  assert.ok(result.warnings.some(warning => warning.includes('unsupported filter: grayscale')));
+});
