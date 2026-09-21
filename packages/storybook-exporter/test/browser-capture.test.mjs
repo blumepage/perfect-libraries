@@ -439,3 +439,20 @@ test("keeps grayscale on vector content blocking", async () => {
   const result = await capture('<div data-figma-source-node="Gray" style="filter:grayscale(1)"><svg width="20" height="20"><rect width="20" height="20" fill="red"/></svg></div>', 'Gray');
   assert.ok(result.warnings.some(warning => warning.includes('unsupported filter: grayscale')));
 });
+
+
+test("keeps equal fractional single-row grid cells responsive inside a growing control", async () => {
+  const result = await capture(`<div data-figma-source-node="Segments" data-figma-source-root="child"><div style="display:flex;width:320px"><div data-figma-layer="Segments" style="display:grid;flex:1;grid-template-columns:repeat(2,minmax(0,1fr));gap:2px;padding:2px"><button>Automatic</button><button>Manual</button></div></div></div>`, "Segments");
+  const grid = result.scene.children[0];
+  assert.equal(grid.layoutSizingHorizontal, "FILL");
+  assert.equal(grid.layoutMode, "HORIZONTAL");
+  assert.ok(grid.children.every(child => child.layoutSizingHorizontal === "FILL"));
+});
+
+test("does not infer fill sizing for fixed or multi-row grid cells", async () => {
+  for (const template of ["100px 100px", "repeat(2,minmax(0,1fr))"]) {
+    const result = await capture(`<div data-figma-source-node="Grid" data-figma-source-root="child"><div style="display:grid;width:320px;grid-template-columns:${template};gap:2px"><button>A</button><button>B</button><button>C</button><button>D</button></div></div>`, "Grid");
+    const children = result.scene.children.flatMap(child => child.name.startsWith("Grid row ") ? child.children : [child]);
+    assert.ok(children.every(child => child.layoutSizingHorizontal !== "FILL"));
+  }
+});

@@ -793,6 +793,22 @@
       return {};
     }
     const parentStyle = getComputedStyle(element.parentElement);
+    // A single row of explicitly equal fractional tracks remains responsive
+    // when translated to horizontal Auto Layout. Do not guess for mixed tracks,
+    // spanning cells, implicit tracks or multi-row grids.
+    if (parentStyle.display === "grid" || parentStyle.display === "inline-grid") {
+      const equalTracks = /^repeat\(\s*(\d+)\s*,\s*minmax\(\s*0(?:px)?\s*,\s*1fr\s*\)\s*\)$/.exec(element.parentElement.style.gridTemplateColumns);
+      const cells = [...element.parentElement.children].filter(child => {
+        const css = getComputedStyle(child);
+        return css.display !== "none" && css.position !== "absolute" && css.position !== "fixed";
+      });
+      const bounds = cells.map(child => child.getBoundingClientRect());
+      if (equalTracks && cells.length === Number(equalTracks[1]) && bounds.length &&
+          bounds.every(rect => Math.abs(rect.top - bounds[0].top) < 0.5 && Math.abs(rect.width - bounds[0].width) < 0.5)) {
+        return { layoutSizingHorizontal: "FILL" };
+      }
+      return {};
+    }
     if (
       parentStyle.display !== "flex" &&
       parentStyle.display !== "inline-flex"
